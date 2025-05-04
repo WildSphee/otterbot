@@ -1,0 +1,19 @@
+__pycache__
+.env
+
+# environment
+.venv/
+venv
+
+# db
+database.db
+
+# image output
+output/
+
+# logs
+log.log
+
+# ssl certs - stripe PROD must require
+mycertificate.crt
+myprivate.key
