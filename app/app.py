@@ -2,6 +2,7 @@ import logging
 import os
 from pathlib import Path
 
+from dotenv import load_dotenv
 from otterrouter import otterhandler
 from telegram.ext import (
     ApplicationBuilder,
@@ -33,6 +34,7 @@ def _set_up_logging() -> None:
 def main():
     """Start the bot. Main entry point when running sh scripts/start.sh"""
 
+    load_dotenv()
     if OTTER_BOT_TOKEN is None:
         print(
             "No token found. Please set OTTER_BOT_TOKEN in your environment variables."

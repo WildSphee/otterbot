@@ -1,13 +1,7 @@
 from datetime import datetime
-from typing import Any, Optional
+from typing import Optional
 
 from pydantic import BaseModel
-
-
-class MessagePayload(BaseModel):
-    text: str = ""
-    image: Optional[Any] = None
-    voice: Optional[Any] = None
 
 
 class User(BaseModel):

@@ -21,7 +21,6 @@ class AccountPage(Page):
                 f"Current Model: <i>{user.model}</i>\n"
             ),
             reply_markup=self.reply_markup,
-
         )
 
     async def respond(
