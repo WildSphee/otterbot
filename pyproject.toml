@@ -1,6 +1,6 @@
 [tool.poetry]
-name = "otterobt"
-version = "0.1.0"
+name = "otterbot"
+version = "0.1.1"
 description = "Telegram Boardgame Assistant Bot"
 authors = ["Reagan <rrr.chanhiulok@gmail.com>"]
 readme = "README.md"
@@ -12,6 +12,8 @@ python-telegram-bot = "^21.11.1"
 pydantic = "^2.10.6"
 openai = "^1.65.2"
 python-dotenv = "^1.1.0"
+beautifulsoup4 = "^4.13.5"
+fastapi = "^0.117.1"
 
 [tool.poetry.group.dev.dependencies]
 ruff = "^0.9.9"
