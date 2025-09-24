@@ -2,7 +2,6 @@ import logging
 import re
 import traceback
 
-from llms.prompt import default_prompt
 from telegram import Update
 from telegram.constants import ChatAction
 from telegram.ext import ContextTypes
@@ -20,24 +19,28 @@ def _mentioned_otter(text: str) -> bool:
     msg_extract = (text or "")[:32].lower()
     return (any(i in msg_extract for i in ["hi", "hey", "yo"]) and "otter" in msg_extract)
 
-
 def _parse_research_intent(text: str) -> str | None:
     """
     Returns the game name if this looks like a research command, else None.
-    Examples: "hi otter, research Catan", "yo otter research: Ticket to Ride"
+    Handles phrasing like: "hi otter, research Catan", "research about Catan", "can you research on Azul?"
     """
-    # Strip mention prefix to avoid false positives
-    lowered = text.lower()
     if not _mentioned_otter(text):
         return None
-    m = re.search(r"\b(research|study|learn)\b[:\s,]*(.+)$", lowered)
+    m = re.search(r"\b(research|study|learn)\b[:\s,]*(.+)$", text, flags=re.IGNORECASE)
     if not m:
         return None
-    game_raw = text[m.start(2):].strip()
-    # remove trailing punctuation
-    game_raw = re.sub(r"[.\s]+$", "", game_raw)
-    # Title-case as a display; slugging happens later
-    return game_raw
+    tail = text[m.start(2):].strip()
+
+    # Remove leading filler/prepositions/articles and trailing punctuation
+    tail = re.sub(r"^(about|on|for|into|regarding|re:?|the game|game)\s+", "", tail, flags=re.IGNORECASE)
+    tail = re.sub(r"^(the|a|an)\s+", "", tail, flags=re.IGNORECASE)
+    tail = re.sub(r"[.\s]+$", "", tail)
+
+    # If something like "Catan please", trim polite suffixes
+    tail = re.sub(r"\s*(please|thanks|thank you)$", "", tail, flags=re.IGNORECASE)
+
+    return tail if tail else None
+
 
 
 async def otterhandler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

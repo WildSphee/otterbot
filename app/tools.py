@@ -1,39 +1,25 @@
-import os
-import re
-import json
-import time
-import hashlib
-import logging
-import pathlib
-import urllib.parse
+import os, re, logging, pathlib, urllib.parse
 from typing import List, Optional, Tuple
-
 import requests
 from bs4 import BeautifulSoup
-
 from dotenv import load_dotenv
 
 from db.sqlite_db import DB
-from schemas import Game, GameSource
+from schemas import Game
 from llms import openai as llm
+from llms.prompt import QA_SYSTEM_PROMPT
 
 load_dotenv()
 logger = logging.getLogger(__name__)
 
-# --------- Config ---------
 STORAGE_DIR = os.getenv("STORAGE_DIR", "storage")
 GAMES_DIR = os.path.join(STORAGE_DIR, "games")
 API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
-USER_AGENT = os.getenv(
-    "CRAWLER_USER_AGENT",
-    "OtterBot/1.0 (+https://example.com; board-game-rules-crawler)",
-)
+USER_AGENT = os.getenv("CRAWLER_USER_AGENT", "OtterBot/1.0 (+https://example.com)")
 REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", "20"))
 
 os.makedirs(GAMES_DIR, exist_ok=True)
 
-
-# --------- Utilities ---------
 def slugify(name: str) -> str:
     s = name.lower().strip()
     s = re.sub(r"[^\w\s-]", "", s)
@@ -41,28 +27,7 @@ def slugify(name: str) -> str:
     s = re.sub(r"^-+|-+$", "", s)
     return s or "game"
 
-
-def file_sha256(path: str) -> str:
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(8192), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
-
-def save_text(path: str, text: str) -> None:
-    pathlib.Path(os.path.dirname(path)).mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(text)
-
-
-def sanitize_filename(url_or_name: str) -> str:
-    name = urllib.parse.urlparse(url_or_name).path.split("/")[-1] or url_or_name
-    name = re.sub(r"[^\w\.-]", "_", name)
-    return name[:200] if len(name) > 200 else name
-
-
-def http_get(url: str) -> Optional[requests.Response]:
+def http_get(url: str):
     try:
         r = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=REQUEST_TIMEOUT)
         if r.status_code == 200:
@@ -73,53 +38,34 @@ def http_get(url: str) -> Optional[requests.Response]:
         logger.warning("GET %s failed: %s", url, e)
         return None
 
-
 def html_to_text(html: str) -> str:
     soup = BeautifulSoup(html, "html.parser")
-    # Remove script/style
     for tag in soup(["script", "style", "noscript"]):
         tag.decompose()
     text = soup.get_text("\n")
-    # Collapse multiple newlines
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
 
-
-# --------- Very light “search” helpers (DuckDuckGo HTML) ---------
-def ddg_search_urls(query: str, max_results: int = 6) -> List[Tuple[str, str]]:
-    """
-    Return list of (title, url) for a simple DuckDuckGo HTML search.
-    NOTE: This uses public HTML. If it stops working, replace with your preferred method.
-    """
-    params = {"q": query}
-    url = "https://duckduckgo.com/html/"
+def bgg_canonical_url(game_name: str) -> Optional[str]:
     try:
-        r = requests.post(url, data=params, headers={"User-Agent": USER_AGENT}, timeout=REQUEST_TIMEOUT)
-        if r.status_code != 200:
-            logger.warning("DDG search failed %s -> %s", url, r.status_code)
-            return []
-        soup = BeautifulSoup(r.text, "html.parser")
-        out = []
-        for a in soup.select(".result__a")[:max_results]:
-            title = a.get_text(strip=True)
-            href = a.get("href")
-            # DDG uses redirect links; try to resolve 'uddg' param
-            if href and "uddg=" in href:
-                try:
-                    href = urllib.parse.parse_qs(urllib.parse.urlparse(href).query).get("uddg", [href])[0]
-                except Exception:
-                    pass
-            if href:
-                out.append((title, href))
-        return out
-    except requests.RequestException as e:
-        logger.warning("DDG request failed: %s", e)
-        return []
+        s = requests.get(
+            "https://boardgamegeek.com/xmlapi2/search",
+            params={"query": game_name, "type": "boardgame"},
+            headers={"User-Agent": USER_AGENT},
+            timeout=REQUEST_TIMEOUT,
+        )
+        if s.status_code != 200 or "<items" not in s.text:
+            return None
+        soup = BeautifulSoup(s.text, "xml")
+        item = soup.find("item")
+        if not item or not item.get("id"):
+            return None
+        game_id = item.get("id")
+        return f"https://boardgamegeek.com/boardgame/{game_id}"
+    except requests.RequestException:
+        return None
 
-
-# --------- DB helpers (thin wrappers) ---------
 db = DB()
-
 
 def get_or_create_game(game_name: str) -> Game:
     slug = slugify(game_name)
@@ -131,112 +77,76 @@ def get_or_create_game(game_name: str) -> Game:
     db.create_game(name=game_name, slug=slug, store_dir=store_dir, status="created")
     return Game(**db.get_game_by_slug(slug))
 
-
-def add_source(game_id: int, source_type: str, url: str, title: str, local_path: Optional[str]) -> None:
-    db.add_game_source(game_id=game_id, source_type=source_type, url=url, title=title, local_path=local_path)
-
-
-def list_source_files(game_slug: str) -> List[GameSource]:
-    rows = db.list_sources_for_game_slug(game_slug)
-    return [GameSource(**r) for r in rows]
-
-
-# --------- LLM Prompt for QA ---------
-QA_SYSTEM_PROMPT = """You are OtterBot, a helpful board game rules assistant.
-- Answer questions about the specified board game using provided documents.
-- Be concise, enumerate steps or rules clearly.
-- If unsure or documents lack the answer, say so and suggest exact rule sections to check.
-- When you use a specific document, include a short citation like: [see: {title}] and provide a file link if available."""
-
-# --------- Tools ---------
 class ResearchTool:
-    """
-    Researches a board game:
-    - Checks DB; if exists -> returns 'already have'.
-    - Otherwise:
-        * Creates game record & folder
-        * Collects sources (PDFs, HTML rule pages, video links)
-        * Stores files + metadata in DB
-        * Marks game ready
-    """
+    def _save_source(self, game: Game, title: str, url: str) -> Tuple[int, int]:
+        """Download if HTML/PDF; otherwise record as a link. Returns (downloaded, linked) increments."""
+        base_dir = db.get_game_by_slug(game.slug)["store_dir"]
+        r = http_get(url)
+        if r is None:
+            db.add_game_source(game_id=game.id, source_type="link", url=url, title=title, local_path=None)
+            return (0, 1)
+
+        ct = (r.headers.get("Content-Type") or "").lower()
+
+        # PDF
+        if "application/pdf" in ct or url.lower().endswith(".pdf"):
+            fname = urllib.parse.quote(os.path.basename(url)) or "doc.pdf"
+            if not fname.endswith(".pdf"):
+                fname += ".pdf"
+            path = os.path.join(base_dir, fname)
+            with open(path, "wb") as f:
+                f.write(r.content)
+            db.add_game_source(game_id=game.id, source_type="pdf", url=url, title=title, local_path=path)
+            return (1, 0)
+
+        # HTML (+ .txt extraction)
+        html_name = urllib.parse.quote(os.path.basename(urllib.parse.urlparse(url).path)) or "page.html"
+        if not html_name.endswith(".html"):
+            html_name += ".html"
+        html_path = os.path.join(base_dir, html_name)
+        with open(html_path, "wb") as f:
+            f.write(r.content)
+        txt = html_to_text(r.text)
+        with open(html_path.replace(".html", ".txt"), "w", encoding="utf-8") as f:
+            f.write(txt)
+        db.add_game_source(game_id=game.id, source_type="html", url=url, title=title, local_path=html_path)
+        return (1, 0)
 
     def research(self, game_name: str) -> str:
         game = get_or_create_game(game_name)
         if game.status in {"ready", "researched"}:
-            return f"I already have research on **{game.name}**. How can I help?"
+            return f"I already have research on **{game.name}**. How can I help? 🦦"
 
         db.update_game_status(game.slug, "researching")
 
-        # Seed URLs heuristics
-        seeds: List[Tuple[str, str]] = []
+        # 1) Ask OpenAI Web Search to gather sources
+        sources = llm.web_research_links(game.name)
 
-        # 1) Wikipedia page
+        # 2) Always also consider deterministic seeds as a fallback
+        seeds: List[Tuple[str, str]] = []
         wiki_slug = game.name.strip().replace(" ", "_")
         seeds.append((f"{game.name} (Wikipedia)", f"https://en.wikipedia.org/wiki/{urllib.parse.quote(wiki_slug)}"))
+        bgg = bgg_canonical_url(game.name)
+        if bgg:
+            seeds.append((f"{game.name} (BoardGameGeek)", bgg))
 
-        # 2) Try to find rulebook PDFs / rules pages via DuckDuckGo
-        q_pdf = f'"{game.name}" board game rules filetype:pdf'
-        q_rules = f'"{game.name}" board game rules'
-        q_video = f'"{game.name}" board game rules site:youtube.com'
+        for s in sources:
+            seeds.append((s["title"], s["url"]))
 
-        for title, url in ddg_search_urls(q_pdf, 6):
-            seeds.append((title, url))
-        for title, url in ddg_search_urls(q_rules, 6):
-            seeds.append((title, url))
-        for title, url in ddg_search_urls(q_video, 6):
-            seeds.append((title, url))
-
-        # Deduplicate by URL
+        # Dedup
         seen = set()
-        uniq_seeds: List[Tuple[str, str]] = []
+        uniq: List[Tuple[str, str]] = []
         for title, url in seeds:
             if url not in seen:
-                uniq_seeds.append((title, url))
+                uniq.append((title, url))
                 seen.add(url)
 
         downloaded = 0
-        saved_links = 0
-
-        for title, url in uniq_seeds:
-            r = http_get(url)
-            if r is None:
-                # Save as link only (e.g., if site blocks scraping)
-                add_source(game.id, "link", url, title, None)
-                saved_links += 1
-                continue
-
-            content_type = (r.headers.get("Content-Type") or "").lower()
-
-            # Decide how to store
-            base_dir = db.get_game_by_slug(game.slug)["store_dir"]
-            if "application/pdf" in content_type or url.lower().endswith(".pdf"):
-                fname = sanitize_filename(url)
-                if not fname.endswith(".pdf"):
-                    fname += ".pdf"
-                path = os.path.join(base_dir, fname)
-                pathlib.Path(base_dir).mkdir(parents=True, exist_ok=True)
-                with open(path, "wb") as f:
-                    f.write(r.content)
-                add_source(game.id, "pdf", url, title, path)
-                downloaded += 1
-                continue
-
-            if "text/html" in content_type or True:
-                # Save HTML and extracted text
-                html_name = sanitize_filename(url)
-                if not html_name.endswith(".html"):
-                    html_name += ".html"
-                html_path = os.path.join(base_dir, html_name)
-                pathlib.Path(base_dir).mkdir(parents=True, exist_ok=True)
-                with open(html_path, "wb") as f:
-                    f.write(r.content)
-
-                txt = html_to_text(r.text)
-                txt_path = html_path.replace(".html", ".txt")
-                save_text(txt_path, txt)
-                add_source(game.id, "html", url, title, html_path)
-                downloaded += 1
-                continue
+        linked = 0
+        for title, url in uniq:
+            d, l = self._save_source(game, title, url)
+            downloaded += d
+            linked += l
 
         db.update_game_status(game.slug, "ready")
         db.update_game_timestamps(game.slug)
@@ -244,27 +154,18 @@ class ResearchTool:
         link = f"{API_BASE_URL}/games/{game.slug}/files"
         return (
             f"I've created a knowledge base for **{game.name}** "
-            f"with {downloaded} saved files and {saved_links} links. "
+            f"with {downloaded} saved files and {linked} links. "
             f"You can browse them here: {link}\n"
-            f"Ask me anything about {game.name}!"
+            f"Ask me anything about {game.name}! 🦦"
         )
 
-
 class QueryTool:
-    """
-    Answers a rules question by:
-    - Determining the game (explicit or inferred from chat history & installed games)
-    - Gathering local documents (txt extracted from html/pdf) for context
-    - Calling the LLM with those snippets
-    """
-
+    # unchanged logic except we import QA_SYSTEM_PROMPT from llms.prompt
     def _detect_game_from_text(self, text: str) -> Optional[str]:
         games = db.list_games()
-        # Match longest name first
         names = sorted([g["name"] for g in games], key=len, reverse=True)
         for name in names:
-            pattern = r"\b" + re.escape(name) + r"\b"
-            if re.search(pattern, text, flags=re.IGNORECASE):
+            if re.search(r"\b" + re.escape(name) + r"\b", text, flags=re.IGNORECASE):
                 return name
         return None
 
@@ -274,111 +175,76 @@ class QueryTool:
             return recent["name"]
         return None
 
-    def _gather_text_snippets(self, game_slug: str, max_chars: int = 20000) -> Tuple[str, List[Tuple[str, str]]]:
-        """
-        Returns (context_text, citations)
-        citations: list of (title, link)
-        """
+    def _gather_text_snippets(self, game_slug: str, max_chars: int = 20000):
         sources = db.list_sources_for_game_slug(game_slug)
         base_url = f"{API_BASE_URL}/games/{game_slug}/files"
-        ctx_parts: List[str] = []
-        citations: List[Tuple[str, str]] = []
+        ctx_parts, citations = [], []
 
         for src in sources:
             title = src["title"] or src["url"]
-            link_out = base_url  # list page; specific file links are also available
+            link_out = base_url
             if src.get("local_path"):
-                # For a specific file link
                 fname = os.path.basename(src["local_path"])
                 link_out = f"{API_BASE_URL}/files/{game_slug}/{urllib.parse.quote(fname)}"
 
-            # Prefer reading .txt versions for html pages we saved
             snippet = ""
             if src.get("local_path"):
-                local_path = src["local_path"]
-                alt_txt = None
-                if local_path.endswith(".html"):
-                    alt_txt = local_path.replace(".html", ".txt")
-                elif local_path.endswith(".pdf"):
-                    # naive: we don't extract PDF text by default here; you can add pypdf2 if desired
-                    alt_txt = None
-
+                lp = src["local_path"]
+                alt_txt = lp.replace(".html", ".txt") if lp.endswith(".html") else (lp if lp.endswith(".txt") else None)
                 try:
                     if alt_txt and os.path.exists(alt_txt):
                         with open(alt_txt, "r", encoding="utf-8", errors="ignore") as f:
                             snippet = f.read()
-                    elif os.path.exists(local_path) and local_path.endswith(".txt"):
-                        with open(local_path, "r", encoding="utf-8", errors="ignore") as f:
-                            snippet = f.read()
                 except Exception as e:
-                    logger.warning("Failed reading snippet from %s: %s", local_path, e)
+                    logger.warning("Failed reading snippet from %s: %s", lp, e)
 
             if snippet:
                 citations.append((title, link_out))
-                ctx_parts.append(f"[Source: {title}]")
-                ctx_parts.append(snippet)
+                ctx_parts.append(f"[Source: {title}]\n{snippet}")
 
             if sum(len(p) for p in ctx_parts) > max_chars:
                 break
 
-        context_text = "\n\n".join(ctx_parts)
-        return context_text, citations
+        return "\n\n".join(ctx_parts), citations
 
     def answer(self, chat_id: int, user_text: str, explicit_game: Optional[str] = None) -> str:
-        # 1) Determine game
         game_name = explicit_game or self._detect_game_from_text(user_text) or self._infer_game_for_chat(chat_id)
         if not game_name:
-            # No inference possible; suggest research or clarify
-            if db.list_games():
-                known = ", ".join(sorted(set(g["name"] for g in db.list_games())))
-                return (
-                    "I’m not sure which game you mean. "
-                    f"Games I currently have: {known}. "
-                    "Say e.g. “yo otter, rules for Catan setup?” "
-                    "Or ask me to research a new game: “hey otter, research Azul”."
-                )
-            else:
-                return (
-                    "I don’t have any games installed yet. "
-                    "Ask me to research one: “hi otter, research Catan”."
-                )
+            known = ", ".join(sorted(set(g["name"] for g in db.list_games()))) or "none yet"
+            return (
+                "I'm not sure which game you mean. "
+                f"Games I currently have: {known}. "
+                "Say e.g. “yo otter, rules for Catan setup?” "
+                "Or ask me to research a new game: “hey otter, research Azul”. 🦦"
+            )
 
-        # Ensure this game exists and is ready
         game = get_or_create_game(game_name)
         if game.status != "ready":
             return (
                 f"**{game.name}** isn’t ready yet (status: {game.status}). "
-                f"Try again in a bit, or ask me to continue research."
+                f"Try again in a bit, or ask me to continue research. 🦦"
             )
 
-        # 2) Gather context documents
         context_text, citations = self._gather_text_snippets(game.slug)
         if not context_text:
             link = f"{API_BASE_URL}/games/{game.slug}/files"
             return (
                 f"I have **{game.name}** installed but no readable text snippets yet. "
-                f"You can browse files here: {link}. "
-                "Add text or enable PDF extraction, then try again."
+                f"Browse files here: {link} and try again. 🦦"
             )
 
-        # 3) Compose LLM messages
         messages = [
             {"role": "system", "content": QA_SYSTEM_PROMPT},
             {"role": "user", "content": f"GAME: {game.name}\n\nQUESTION: {user_text}\n\nDOCUMENTS:\n{context_text[:20000]}"},
         ]
-
         answer = llm.chat(messages=messages)
-
-        # 4) Append simple citations (just list top few)
         if citations:
-            uniq = []
-            seen = set()
+            uniq, seen = [], set()
             for title, link in citations[:5]:
-                key = (title, link)
-                if key not in seen:
-                    uniq.append(key)
-                    seen.add(key)
-            cite_lines = "\n".join(f"- {t}: {l}" for t, l in uniq)
-            answer = f"{answer}\n\nSources:\n{cite_lines}"
+                if (title, link) not in seen:
+                    uniq.append((title, link)); seen.add((title, link))
+            answer = f"{answer}\n\nSources:\n" + "\n".join(f"- {t}: {l}" for t, l in uniq)
 
+        if not answer.strip().endswith("🦦"):
+            answer = answer.strip() + " 🦦"
         return answer

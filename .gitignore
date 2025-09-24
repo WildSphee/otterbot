@@ -9,7 +9,7 @@ venv
 database.db
 
 # image output
-output/
+storage/
 
 # logs
 log.log

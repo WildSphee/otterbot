@@ -2,6 +2,7 @@ import os
 import sqlite3
 import threading
 from typing import Dict, List, Optional
+import re
 
 DATABASE_FILE = f"{os.getenv('DATABASE_NAME', 'database')}.db"
 
@@ -29,49 +30,7 @@ class DB:
 
     def _create_tables(self):
         cursor = self.conn.cursor()
-        # --- legacy tables (kept as-is) ---
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS user (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INT,
-                user_name TEXT,
-                preferred_name TEXT,
-                page TEXT,
-                model TEXT,
-                tokens INT,
-                date_joined DATETIME DEFAULT CURRENT_TIMESTAMP
-            )
-            """
-        )
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS generations (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INT,
-                prompt TEXT,
-                model TEXT,
-                image_path TEXT,
-                used_tokens INT,
-                time_taken FLOAT NULL,
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-            )
-            """
-        )
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS purchases (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INT,
-                tokens INT,
-                environment TEXT,
-                price_id,
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-            )
-            """
-        )
 
-        # --- NEW: games (installed knowledge bases) ---
         cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS games (
