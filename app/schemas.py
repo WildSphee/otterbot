@@ -18,13 +18,20 @@ class User(BaseModel):
 class Game(BaseModel):
     id: Optional[int] = None
     name: str
-    slug: str
     description: Optional[str] = None
     status: Optional[str] = None
     store_dir: str
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     last_researched_at: Optional[datetime] = None
+
+
+class GameNameExtraction(BaseModel):
+    """Structured output for extracting game name from user query."""
+
+    game_name: Optional[str] = None
+    confidence: str  # high|medium|low
+    reasoning: Optional[str] = None
 
 
 class GameSource(BaseModel):
@@ -45,5 +52,5 @@ class ChatLog(BaseModel):
     user_name: Optional[str] = None
     message: str
     role: str  # user|assistant|system
-    game_slug: Optional[str] = None
+    game_id: Optional[int] = None
     created_at: Optional[datetime] = None

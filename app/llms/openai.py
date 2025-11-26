@@ -1,12 +1,15 @@
-from typing import Dict, List, Optional, Any
-import json, re
+import json
+import re
+from typing import Any, Dict, List, Optional
 
-from openai import OpenAI
 from dotenv import load_dotenv
+from openai import OpenAI
+
 from llms.prompt import WEB_RESEARCH_PROMPT
 
 load_dotenv()
 client = OpenAI()
+
 
 def chat(messages, model: str = "gpt-4o", tools: Optional[List] = None) -> str:
     completion = client.chat.completions.create(
@@ -17,11 +20,14 @@ def chat(messages, model: str = "gpt-4o", tools: Optional[List] = None) -> str:
     )
     return completion.choices[0].message.content or ""
 
+
 def call_openai(history, query: str, tools: List = []) -> str:
     messages = history + [{"role": "user", "content": query}]
     return chat(messages=messages, tools=tools)
 
+
 # ---------- Responses API helpers ----------
+
 
 def _extract_json_block(text: str) -> Optional[dict]:
     if not text:
@@ -37,7 +43,10 @@ def _extract_json_block(text: str) -> Optional[dict]:
     except Exception:
         return None
 
-def web_research_links(topic: str, model: str = "gpt-4o", max_sources: int = 16) -> List[Dict[str, Any]]:
+
+def web_research_links(
+    topic: str, model: str = "gpt-4o", max_sources: int = 16
+) -> List[Dict[str, Any]]:
     """
     Uses the Responses API with the built-in Web Search tool to return a list of sources.
     Requires an SDK version that includes client.responses.create.
@@ -75,7 +84,9 @@ def web_research_links(topic: str, model: str = "gpt-4o", max_sources: int = 16)
         if not url or url in seen:
             continue
         seen.add(url)
-        cleaned.append({"title": title, "url": url, "type": stype, "notes": s.get("notes", "")})
+        cleaned.append(
+            {"title": title, "url": url, "type": stype, "notes": s.get("notes", "")}
+        )
         if len(cleaned) >= max_sources:
             break
     return cleaned

@@ -3,29 +3,27 @@ from typing import List, Optional, Tuple
 import requests
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
+from difflib import get_close_matches
 
 from db.sqlite_db import DB
-from schemas import Game
+from schemas import Game, GameNameExtraction
 from llms import openai as llm
 from llms.prompt import QA_SYSTEM_PROMPT
+from datasources.faiss_ds import FAISSDS
+from datasources.ingest import ingest_game_sources
 
 load_dotenv()
 logger = logging.getLogger(__name__)
 
 STORAGE_DIR = os.getenv("STORAGE_DIR", "storage")
 GAMES_DIR = os.path.join(STORAGE_DIR, "games")
+DATASOURCES_DIR = os.path.join(STORAGE_DIR, "datasources")
 API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
 USER_AGENT = os.getenv("CRAWLER_USER_AGENT", "OtterBot/1.0 (+https://example.com)")
 REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", "20"))
 
 os.makedirs(GAMES_DIR, exist_ok=True)
-
-def slugify(name: str) -> str:
-    s = name.lower().strip()
-    s = re.sub(r"[^\w\s-]", "", s)
-    s = re.sub(r"[\s_-]+", "-", s)
-    s = re.sub(r"^-+|-+$", "", s)
-    return s or "game"
+os.makedirs(DATASOURCES_DIR, exist_ok=True)
 
 def http_get(url: str):
     try:
@@ -68,19 +66,72 @@ def bgg_canonical_url(game_name: str) -> Optional[str]:
 db = DB()
 
 def get_or_create_game(game_name: str) -> Game:
-    slug = slugify(game_name)
-    existing = db.get_game_by_slug(slug)
+    """Get existing game by name or create new one."""
+    existing = db.get_game_by_name(game_name)
     if existing:
         return Game(**existing)
-    store_dir = os.path.join(GAMES_DIR, slug)
+
+    # Use game ID for directory name (will be created after insert)
+    # For now, use a temp placeholder, then update after we get the ID
+    game_id = db.create_game(name=game_name, store_dir="temp", status="created")
+    store_dir = os.path.join(GAMES_DIR, str(game_id))
     pathlib.Path(store_dir).mkdir(parents=True, exist_ok=True)
-    db.create_game(name=game_name, slug=slug, store_dir=store_dir, status="created")
-    return Game(**db.get_game_by_slug(slug))
+
+    # Update with actual store_dir
+    cursor = db.conn.cursor()
+    cursor.execute("UPDATE games SET store_dir = ? WHERE id = ?", (store_dir, game_id))
+    db.conn.commit()
+
+    game_data = db.get_game_by_id(game_id)
+    return Game(**game_data)
+
+
+def extract_game_name(user_text: str, available_games: List[str]) -> Optional[str]:
+    """
+    Use OpenAI structured output to extract game name from user text.
+    Then fuzzy match against available games.
+    """
+    # Build context with available games
+    games_list = ", ".join(available_games) if available_games else "none"
+    prompt = f"""Extract the board game name from the user's message.
+
+Available games in database: {games_list}
+
+User message: {user_text}
+
+If the user is asking about a game, extract its name. If no specific game is mentioned, return null.
+Match against available games if possible."""
+
+    try:
+        response = llm.client.beta.chat.completions.parse(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": prompt}],
+            response_format=GameNameExtraction,
+        )
+        extraction = response.choices[0].message.parsed
+
+        if not extraction or not extraction.game_name:
+            return None
+
+        # Fuzzy match against available games
+        matches = get_close_matches(extraction.game_name, available_games, n=1, cutoff=0.6)
+        if matches:
+            logger.info(f"Extracted game: {extraction.game_name} -> Matched: {matches[0]}")
+            return matches[0]
+
+        # If no match but extraction was confident, return the extracted name
+        if extraction.confidence == "high":
+            return extraction.game_name
+
+        return None
+    except Exception as e:
+        logger.error(f"Game name extraction failed: {e}")
+        return None
 
 class ResearchTool:
     def _save_source(self, game: Game, title: str, url: str) -> Tuple[int, int]:
         """Download if HTML/PDF; otherwise record as a link. Returns (downloaded, linked) increments."""
-        base_dir = db.get_game_by_slug(game.slug)["store_dir"]
+        base_dir = game.store_dir
         r = http_get(url)
         if r is None:
             db.add_game_source(game_id=game.id, source_type="link", url=url, title=title, local_path=None)
@@ -117,7 +168,7 @@ class ResearchTool:
         if game.status in {"ready", "researched"}:
             return f"I already have research on **{game.name}**. How can I help? 🦦"
 
-        db.update_game_status(game.slug, "researching")
+        db.update_game_status(game.id, "researching")
 
         # 1) Ask OpenAI Web Search to gather sources
         sources = llm.web_research_links(game.name)
@@ -148,10 +199,18 @@ class ResearchTool:
             downloaded += d
             linked += l
 
-        db.update_game_status(game.slug, "ready")
-        db.update_game_timestamps(game.slug)
+        # Create FAISS index from downloaded sources
+        try:
+            index_name = ingest_game_sources(game.id)
+            logger.info(f"Created FAISS index: {index_name}")
+        except Exception as e:
+            logger.error(f"Failed to create FAISS index for game {game.id}: {e}")
+            # Don't fail the whole research, just log the error
 
-        link = f"{API_BASE_URL}/games/{game.slug}/files"
+        db.update_game_status(game.id, "ready")
+        db.update_game_timestamps(game.id)
+
+        link = f"{API_BASE_URL}/games/{game.id}/files"
         return (
             f"I've created a knowledge base for **{game.name}** "
             f"with {downloaded} saved files and {linked} links. "
@@ -160,91 +219,105 @@ class ResearchTool:
         )
 
 class QueryTool:
-    # unchanged logic except we import QA_SYSTEM_PROMPT from llms.prompt
-    def _detect_game_from_text(self, text: str) -> Optional[str]:
-        games = db.list_games()
-        names = sorted([g["name"] for g in games], key=len, reverse=True)
-        for name in names:
-            if re.search(r"\b" + re.escape(name) + r"\b", text, flags=re.IGNORECASE):
-                return name
-        return None
+    def _search_faiss(self, game_id: int, query: str, top_k: int = 5) -> Tuple[str, List[Tuple[str, str]]]:
+        """
+        Search FAISS index for relevant chunks and return context + citations.
+        """
+        try:
+            faiss_ds = FAISSDS(index_name=str(game_id))
+            hits = faiss_ds.search_request(search_query=query, topk=top_k)
 
-    def _infer_game_for_chat(self, chat_id: int) -> Optional[str]:
-        recent = db.find_recent_game_for_chat(chat_id)
-        if recent:
-            return recent["name"]
-        return None
+            context_parts = []
+            citations = []
+            for hit in hits:
+                content = hit.get("content", "")
+                search_key = hit.get("search_key", "")
+                file_url = hit.get("file_url", "")
+                score = hit.get("score", 0)
 
-    def _gather_text_snippets(self, game_slug: str, max_chars: int = 20000):
-        sources = db.list_sources_for_game_slug(game_slug)
-        base_url = f"{API_BASE_URL}/games/{game_slug}/files"
-        ctx_parts, citations = [], []
+                context_parts.append(f"[Source: {search_key} (score: {score:.2f})]\n{content}")
+                citations.append((search_key, file_url))
 
-        for src in sources:
-            title = src["title"] or src["url"]
-            link_out = base_url
-            if src.get("local_path"):
-                fname = os.path.basename(src["local_path"])
-                link_out = f"{API_BASE_URL}/files/{game_slug}/{urllib.parse.quote(fname)}"
-
-            snippet = ""
-            if src.get("local_path"):
-                lp = src["local_path"]
-                alt_txt = lp.replace(".html", ".txt") if lp.endswith(".html") else (lp if lp.endswith(".txt") else None)
-                try:
-                    if alt_txt and os.path.exists(alt_txt):
-                        with open(alt_txt, "r", encoding="utf-8", errors="ignore") as f:
-                            snippet = f.read()
-                except Exception as e:
-                    logger.warning("Failed reading snippet from %s: %s", lp, e)
-
-            if snippet:
-                citations.append((title, link_out))
-                ctx_parts.append(f"[Source: {title}]\n{snippet}")
-
-            if sum(len(p) for p in ctx_parts) > max_chars:
-                break
-
-        return "\n\n".join(ctx_parts), citations
+            return "\n\n".join(context_parts), citations
+        except Exception as e:
+            logger.error(f"FAISS search failed for game {game_id}: {e}")
+            return "", []
 
     def answer(self, chat_id: int, user_text: str, explicit_game: Optional[str] = None) -> str:
-        game_name = explicit_game or self._detect_game_from_text(user_text) or self._infer_game_for_chat(chat_id)
+        """
+        Answer user question using:
+        1. Structured output to extract game name
+        2. Fuzzy matching against available games
+        3. FAISS vector search for context
+        4. LLM to generate answer
+        """
+        # Get available games
+        games = db.list_games()
+        available_game_names = [g["name"] for g in games]
+
+        # Extract game name from user text
+        game_name = None
+        if explicit_game:
+            game_name = explicit_game
+        else:
+            # Try structured extraction first
+            game_name = extract_game_name(user_text, available_game_names)
+
+            # Fallback to recent chat context if extraction failed
+            if not game_name:
+                recent_game = db.find_recent_game_for_chat(chat_id)
+                if recent_game:
+                    game_name = recent_game["name"]
+
         if not game_name:
-            known = ", ".join(sorted(set(g["name"] for g in db.list_games()))) or "none yet"
+            known = ", ".join(sorted(set(g["name"] for g in games))) or "none yet"
             return (
                 "I'm not sure which game you mean. "
                 f"Games I currently have: {known}. "
-                "Say e.g. “yo otter, rules for Catan setup?” "
-                "Or ask me to research a new game: “hey otter, research Azul”. 🦦"
+                "Say e.g. "yo otter, what are the setup rules for Catan?" "
+                "Or ask me to research a new game: "hey otter, research Azul". 🦦"
             )
 
-        game = get_or_create_game(game_name)
+        # Get game from DB
+        game_data = db.get_game_by_name(game_name)
+        if not game_data:
+            return f"I don't have information about **{game_name}** yet. Ask me to research it first! 🦦"
+
+        game = Game(**game_data)
+
         if game.status != "ready":
             return (
-                f"**{game.name}** isn’t ready yet (status: {game.status}). "
+                f"**{game.name}** isn't ready yet (status: {game.status}). "
                 f"Try again in a bit, or ask me to continue research. 🦦"
             )
 
-        context_text, citations = self._gather_text_snippets(game.slug)
+        # Search FAISS index for relevant context
+        context_text, citations = self._search_faiss(game.id, user_text, top_k=5)
+
         if not context_text:
-            link = f"{API_BASE_URL}/games/{game.slug}/files"
+            link = f"{API_BASE_URL}/games/{game.id}/files"
             return (
-                f"I have **{game.name}** installed but no readable text snippets yet. "
-                f"Browse files here: {link} and try again. 🦦"
+                f"I have **{game.name}** in my database but couldn't find relevant information. "
+                f"Browse files here: {link} 🦦"
             )
 
+        # Generate answer using LLM
         messages = [
             {"role": "system", "content": QA_SYSTEM_PROMPT},
             {"role": "user", "content": f"GAME: {game.name}\n\nQUESTION: {user_text}\n\nDOCUMENTS:\n{context_text[:20000]}"},
         ]
         answer = llm.chat(messages=messages)
+
+        # Add citations
         if citations:
             uniq, seen = [], set()
             for title, link in citations[:5]:
                 if (title, link) not in seen:
-                    uniq.append((title, link)); seen.add((title, link))
+                    uniq.append((title, link))
+                    seen.add((title, link))
             answer = f"{answer}\n\nSources:\n" + "\n".join(f"- {t}: {l}" for t, l in uniq)
 
         if not answer.strip().endswith("🦦"):
             answer = answer.strip() + " 🦦"
+
         return answer

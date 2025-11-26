@@ -8,7 +8,8 @@ import numpy as np
 import openai
 from faiss import read_index
 
-DATASOURCE_PATH = "datasources"
+STORAGE_DIR = os.getenv("STORAGE_DIR", "storage")
+DATASOURCE_PATH = os.path.join(STORAGE_DIR, "datasources")
 
 client = openai.OpenAI()
 
