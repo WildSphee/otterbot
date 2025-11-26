@@ -36,7 +36,6 @@ class DB:
             CREATE TABLE IF NOT EXISTS games (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
-                slug TEXT NOT NULL UNIQUE,
                 description TEXT,
                 status TEXT DEFAULT 'created',
                 store_dir TEXT NOT NULL,
@@ -82,79 +81,17 @@ class DB:
 
         self.conn.commit()
 
-    # ------------------------------
-    # User Table Operations (legacy)
-    # ------------------------------
-    def add_user(
-        self,
-        user_id: int,
-        user_name: str,
-        preferred_name: str,
-        page: str,
-        model: str,
-        tokens: int,
-    ):
-        cursor = self.conn.cursor()
-        cursor.execute(
-            "INSERT INTO user (user_id, user_name, preferred_name, page, model, tokens) VALUES (?, ?, ?, ?, ?, ?)",
-            (
-                int(user_id),
-                str(user_name),
-                str(preferred_name),
-                str(page),
-                str(model),
-                int(tokens),
-            ),
-        )
-        self.conn.commit()
 
-    def update_user_page(self, user_id: int, new_page: str):
-        cursor = self.conn.cursor()
-        cursor.execute(
-            "UPDATE user SET page = ? WHERE user_id = ?", (new_page, int(user_id))
-        )
-        self.conn.commit()
-
-    def update_user_model(self, user_id: int, new_model: str):
-        cursor = self.conn.cursor()
-        cursor.execute(
-            "UPDATE user SET model = ? WHERE user_id = ?", (new_model, int(user_id))
-        )
-        self.conn.commit()
-
-    def get_user(self, user_id: int) -> Dict | None:
-        cursor = self.conn.cursor()
-        cursor.execute("SELECT * FROM user WHERE user_id = ?", (int(user_id),))
-        row = cursor.fetchone()
-        return dict(row) if row else None
-
-    def update_user_tokens(self, user_id: int, delta: int):
-        cursor = self.conn.cursor()
-        cursor.execute(
-            "UPDATE user SET tokens = tokens + ? WHERE user_id = ?",
-            (delta, int(user_id)),
-        )
-        self.conn.commit()
-
-    # ------------------------------
-    # NEW: Games Operations
-    # ------------------------------
-    def create_game(self, name: str, slug: str, store_dir: str, status: str = "created", description: Optional[str] = None):
+    def create_game(self, name: str, store_dir: str, status: str = "created", description: Optional[str] = None):
         cursor = self.conn.cursor()
         cursor.execute(
             """
-            INSERT INTO games (name, slug, description, status, store_dir)
+            INSERT INTO games (name, description, status, store_dir)
             VALUES (?, ?, ?, ?, ?)
             """,
-            (name, slug, description, status, store_dir),
+            (name, description, status, store_dir),
         )
         self.conn.commit()
-
-    def get_game_by_slug(self, slug: str) -> Optional[Dict]:
-        cursor = self.conn.cursor()
-        cursor.execute("SELECT * FROM games WHERE slug = ?", (slug,))
-        row = cursor.fetchone()
-        return dict(row) if row else None
 
     def get_game_by_name(self, name: str) -> Optional[Dict]:
         cursor = self.conn.cursor()
@@ -183,9 +120,6 @@ class DB:
         )
         self.conn.commit()
 
-    # ------------------------------
-    # NEW: Game Sources Operations
-    # ------------------------------
     def add_game_source(self, game_id: int, source_type: str, url: str, title: str, local_path: Optional[str]):
         cursor = self.conn.cursor()
         cursor.execute(
@@ -196,19 +130,6 @@ class DB:
             (int(game_id), str(source_type), str(url) if url else None, str(title) if title else None, str(local_path) if local_path else None),
         )
         self.conn.commit()
-
-    def list_sources_for_game_slug(self, slug: str) -> List[Dict]:
-        cursor = self.conn.cursor()
-        cursor.execute(
-            """
-            SELECT gs.* FROM game_sources gs
-            JOIN games g ON g.id = gs.game_id
-            WHERE g.slug = ?
-            ORDER BY gs.added_at DESC, gs.id DESC
-            """,
-            (slug,),
-        )
-        return [dict(r) for r in cursor.fetchall()]
 
     # ------------------------------
     # NEW: Chat Log Operations
@@ -270,8 +191,6 @@ class DB:
                     return self.get_game_by_slug(slug)
         return None
 
-    # ------------------------------
-    # Connection Management
-    # ------------------------------
+
     def close(self):
         self.conn.close()
