@@ -13,6 +13,7 @@ storage/
 
 # logs
 log.log
+CLAUDE.md
 
 # ssl certs - stripe PROD must require
 mycertificate.crt

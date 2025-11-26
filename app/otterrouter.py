@@ -101,7 +101,7 @@ async def otterhandler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 game_id=game_id,
             )
 
-            await message.reply_text(reply)
+            await message.reply_text(reply, parse_mode="HTML")
             db.add_chat_message(
                 chat_id=chat_id,
                 chat_type=chat_type,
@@ -115,7 +115,7 @@ async def otterhandler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
         # Otherwise, treat as a rules question. Try to answer using QueryTool (which infers the game).
         answer = query_tool.answer(chat_id=chat_id, user_text=text, explicit_game=None)
-        await message.reply_text(answer)
+        await message.reply_text(answer, parse_mode="HTML")
 
         # Log assistant answer; try to attach inferred game if answer contains a known game name
         maybe_game_id = None

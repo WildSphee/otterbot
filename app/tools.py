@@ -166,7 +166,7 @@ class ResearchTool:
     def research(self, game_name: str) -> str:
         game = get_or_create_game(game_name)
         if game.status in {"ready", "researched"}:
-            return f"I already have research on **{game.name}**. How can I help? 🦦"
+            return f"I already have research on <b>{game.name}</b>. How can I help? 🦦"
 
         db.update_game_status(game.id, "researching")
 
@@ -212,9 +212,9 @@ class ResearchTool:
 
         link = f"{API_BASE_URL}/games/{game.id}/files"
         return (
-            f"I've created a knowledge base for **{game.name}** "
+            f"I've created a knowledge base for <b>{game.name}</b> "
             f"with {downloaded} saved files and {linked} links. "
-            f"You can browse them here: {link}\n"
+            f"You can browse them <a href=\"{link}\">here</a>\n"
             f"Ask me anything about {game.name}! 🦦"
         )
 
@@ -274,20 +274,20 @@ class QueryTool:
             return (
                 "I'm not sure which game you mean. "
                 f"Games I currently have: {known}. "
-                "Say e.g. "yo otter, what are the setup rules for Catan?" "
-                "Or ask me to research a new game: "hey otter, research Azul". 🦦"
+                "Say e.g. 'yo otter, what are the setup rules for Catan?' "
+                "Or ask me to research a new game: 'hey otter, research Azul'. 🦦"
             )
 
         # Get game from DB
         game_data = db.get_game_by_name(game_name)
         if not game_data:
-            return f"I don't have information about **{game_name}** yet. Ask me to research it first! 🦦"
+            return f"I don't have information about <b>{game_name}</b> yet. Ask me to research it first! 🦦"
 
         game = Game(**game_data)
 
         if game.status != "ready":
             return (
-                f"**{game.name}** isn't ready yet (status: {game.status}). "
+                f"<b>{game.name}</b> isn't ready yet (status: {game.status}). "
                 f"Try again in a bit, or ask me to continue research. 🦦"
             )
 
@@ -297,8 +297,8 @@ class QueryTool:
         if not context_text:
             link = f"{API_BASE_URL}/games/{game.id}/files"
             return (
-                f"I have **{game.name}** in my database but couldn't find relevant information. "
-                f"Browse files here: {link} 🦦"
+                f"I have <b>{game.name}</b> in my database but couldn't find relevant information. "
+                f"Browse files <a href=\"{link}\">here</a> 🦦"
             )
 
         # Generate answer using LLM
@@ -308,14 +308,17 @@ class QueryTool:
         ]
         answer = llm.chat(messages=messages)
 
-        # Add citations
+        # Add citations with HTML links
         if citations:
             uniq, seen = [], set()
             for title, link in citations[:5]:
                 if (title, link) not in seen:
                     uniq.append((title, link))
                     seen.add((title, link))
-            answer = f"{answer}\n\nSources:\n" + "\n".join(f"- {t}: {l}" for t, l in uniq)
+
+            # Format sources with HTML links
+            sources_html = "\n".join(f"• <a href=\"{l}\">{t}</a>" for t, l in uniq)
+            answer = f"{answer}\n\n<b>Sources:</b>\n{sources_html}"
 
         if not answer.strip().endswith("🦦"):
             answer = answer.strip() + " 🦦"

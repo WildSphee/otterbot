@@ -1,4 +1,3 @@
-# api.py
 import os
 from typing import List, Optional
 
@@ -12,10 +11,11 @@ from pydantic import BaseModel
 load_dotenv()
 app = FastAPI(title="OtterBot Files API")
 
-# CORS (adjust as desired)
+# CORS - Allow your domain
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "https://otterbot.space,http://localhost:3000").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # tighten for prod
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -26,8 +26,8 @@ STORAGE_DIR = os.getenv("STORAGE_DIR", "storage")
 GAMES_DIR = os.path.join(STORAGE_DIR, "games")
 os.makedirs(GAMES_DIR, exist_ok=True)
 
-# Serve files under /files/{slug}/<filename>
-# We mount /files to STORAGE_DIR/games, so each game folder is /files/<slug>/
+# Serve files under /files/{game_id}/<filename>
+# We mount /files to STORAGE_DIR/games, so each game folder is /files/<game_id>/
 app.mount("/files", StaticFiles(directory=GAMES_DIR), name="files")
 
 
