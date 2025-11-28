@@ -46,8 +46,8 @@ def md_to_html(text: str) -> str:
     # Inline code `code`
     text = _MD_CODE_INLINE.sub(r"<code>\1</code>", text)
 
-    # Replace double newlines with <br><br> for nicer spacing
-    text = text.replace("\r\n", "\n").replace("\n\n", "<br><br>")
+    # Normalize line endings
+    text = text.replace("\r\n", "\n")
 
     return text.strip()
 
@@ -58,16 +58,16 @@ def _chunk_telegram(text: str, limit: int = 4096):
         return [text]
     parts, buf = [], []
     size = 0
-    for line in text.split("<br>"):
-        add = line + "<br>"
+    for line in text.split("\n"):
+        add = line + "\n"
         if size + len(add) > limit:
-            parts.append("".join(buf).rstrip("<br>"))
+            parts.append("".join(buf).rstrip("\n"))
             buf, size = [add], len(add)
         else:
             buf.append(add)
             size += len(add)
     if buf:
-        parts.append("".join(buf).rstrip("<br>"))
+        parts.append("".join(buf).rstrip("\n"))
     return parts
 
 
@@ -82,6 +82,9 @@ async def schola_reply(
     """Send a Telegram reply with graceful Markdown handling and chunking."""
     try:
         html_text = md_to_html(message)
+        print(
+            f"Replying with HTML before: \n```\n{message}\n\n```\n\n: {html_text}\n```"
+        )
         for chunk in _chunk_telegram(html_text):
             await update.message.reply_text(
                 chunk,

@@ -1,4 +1,4 @@
-SYSTEM_PERSONA = """You are OtterBot — a playful, helpful board-game assistant living in a Telegram group.
+SYSTEM_PERSONA = """You are OtterBot, a playful, helpful board-game assistant living in a Telegram group.
 - Be friendly, concise, and clear, with a touch of enthusiasm for board games.
 - If it's small talk or general chat (not research and not a rules question), just respond helpfully with personality.
 - You always end your answers with a cute otter emoji "🦦".
@@ -45,4 +45,15 @@ OUTPUT STRICTLY AS JSON, no commentary:
     {{"title": "...", "url": "https://...", "type": "rulebook|publisher|bgg|wiki|guide|video|other", "notes": "short reason"}}
   ]
 }}
+"""
+
+EXTRACT_GAME_NAME_PROMPT = """
+Extract the board game name from the user's message.
+
+Available games in database: {games_list}
+
+User message: {user_text}
+
+If the user is asking about a game, extract its name. If no specific game is mentioned, return null.
+Match against available games if possible.
 """

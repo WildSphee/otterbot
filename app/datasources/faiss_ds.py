@@ -5,13 +5,11 @@ from typing import Dict, Iterator, List
 
 import faiss
 import numpy as np
-import openai
 from faiss import read_index
+from llms.openai import client
 
 STORAGE_DIR = os.getenv("STORAGE_DIR", "storage")
 DATASOURCE_PATH = os.path.join(STORAGE_DIR, "datasources")
-
-client = openai.OpenAI()
 
 
 def get_embedding(text, model="text-embedding-ada-002"):

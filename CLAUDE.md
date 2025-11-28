@@ -21,13 +21,29 @@ source venv/bin/activate
 ```
 
 ### Running the Application
-```bash
-# Start the Telegram bot (main app)
-python -m app.main
 
-# Start the FastAPI file server (optional, for browsing stored files)
-uvicorn app.api:app --reload
+**Recommended: Start both services together**
+```bash
+# Start both Telegram bot and FastAPI server with one command
+bash scripts/start.sh
+
+# This script:
+# - Starts FastAPI on 0.0.0.0:8000
+# - Starts Telegram bot
+# - Tracks PIDs for both processes
+# - Handles cleanup on Ctrl+C (kills both processes)
 ```
+
+**Alternative: Start services separately**
+```bash
+# Terminal 1: Start the Telegram bot
+python app/main.py
+
+# Terminal 2: Start the FastAPI file server (for browsing stored files)
+uvicorn app.api:app --host 0.0.0.0 --port 8000 --reload
+```
+
+**Important:** The FastAPI server must bind to `0.0.0.0` (not `127.0.0.1`) to be accessible from external browsers. Links sent by the bot (e.g., `https://otterbot.space/games/1/files`) require the API server to be running and accessible.
 
 ### Linting and Code Quality
 ```bash
@@ -95,12 +111,34 @@ mypy .                     # Type checking
 - `client.chat.completions.create()`
 - Prompt in app/llms/prompt.py:7 `QA_SYSTEM_PROMPT`
 
+### FastAPI Web Interface (app/api.py)
+
+The FastAPI server provides:
+1. **JSON API endpoints** for programmatic access
+2. **Beautiful HTML interface** for browsing game files
+
+**Key endpoints:**
+- `GET /games` - List all games (JSON)
+- `GET /games/{game_id}` - Get game details (JSON)
+- `GET /games/{game_id}/files` - Browse game files (HTML by default, add `?format=json` for JSON)
+- `GET /files/{game_id}/{filename}` - Serve static files (PDFs, HTML, etc.)
+
+**HTML Interface Features:**
+- Responsive design with gradient background
+- Files grouped by type (PDFs, Web Pages, External Links)
+- PDF preview thumbnails embedded in cards
+- Hover animations and modern UI
+- Badges showing downloaded vs. external files
+- Direct links to view files and original sources
+
 ### Key Dependencies
 
 - **python-telegram-bot**: Telegram bot framework
 - **openai**: For Responses API (web research) and Chat API (Q&A)
 - **beautifulsoup4**: HTML parsing and text extraction
-- **fastapi**: Optional file server to browse stored docs
+- **fastapi**: Web server for browsing stored docs with beautiful HTML interface
+- **uvicorn**: ASGI server for FastAPI
+- **faiss-cpu**: Vector database for semantic search
 - **sqlite3**: Built-in, no external DB required
 
 ## Important Patterns
@@ -120,22 +158,54 @@ When user asks a question without naming the game, system checks:
 ```
 storage/
   games/
-    <game-slug>/
+    <game-id>/         # Uses numeric game ID, not slug
       page.html        # Downloaded HTML
       page.txt         # Extracted text from HTML
       rulebook.pdf     # Downloaded PDFs
       ...
+  datasources/
+    <game-id>/         # FAISS vector indices per game
+      index.faiss
+      metadata.pkl
 ```
+
+**Note:** Storage directories use numeric game IDs (e.g., `storage/games/1/`) for simplicity and to avoid issues with special characters in game names.
 
 ## Configuration
 
 Environment variables (create `.env` file):
 ```bash
-OTTER_BOT_TOKEN=<telegram-bot-token>     # Required
-OPENAI_API_KEY=<openai-key>              # Required (loaded by openai SDK)
-STORAGE_DIR=storage                       # Optional, defaults to "storage"
-DATABASE_NAME=database                    # Optional, defaults to "database"
-API_BASE_URL=http://localhost:8000        # For file server links
+OTTER_BOT_TOKEN=<telegram-bot-token>     # Required - from @BotFather
+OPENAI_API_KEY=<openai-key>              # Required - for LLM and embeddings
+DATABASE_NAME=otterbot                    # Optional, defaults to "database"
+STORAGE_DIR=storage                    # Optional, defaults to "storage"
+API_BASE_URL=https://otterbot.space       # Required - public URL for file links in bot messages
+```
+
+**Critical:** `API_BASE_URL` should be your public-facing URL (e.g., `https://otterbot.space`), not `localhost`. The bot sends links like `{API_BASE_URL}/games/1/files` to users in Telegram.
+
+## Common Issues
+
+### Multiple Bot Instances
+**Symptom:** Telegram API errors about "terminated by other getUpdates request"
+
+**Solution:** Only run one bot instance at a time. Check for existing processes:
+```bash
+ps aux | grep "python.*main.py" | grep -v grep
+```
+Kill any existing instances before starting a new one.
+
+### HTML Parsing Errors in Telegram
+**Symptom:** Messages fail with "Can't parse entities: unsupported start tag"
+
+**Solution:** Telegram's HTML parser only supports: `<b>`, `<i>`, `<a>`, `<code>`, `<pre>`. The bot uses `app/utils.py:md_to_html()` to convert markdown to Telegram-compatible HTML. Never use `<br>` tags - use newlines instead.
+
+### API Not Accessible from Browser
+**Symptom:** Can't access `http://your-server:8000` from browser
+
+**Solution:** Ensure uvicorn binds to `0.0.0.0` (not `127.0.0.1`):
+```bash
+uvicorn app.api:app --host 0.0.0.0 --port 8000
 ```
 
 ## Testing Notes

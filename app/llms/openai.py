@@ -3,9 +3,8 @@ import re
 from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
-from openai import OpenAI
-
 from llms.prompt import WEB_RESEARCH_PROMPT
+from openai import OpenAI
 
 load_dotenv()
 client = OpenAI()

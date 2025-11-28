@@ -7,6 +7,7 @@ from telegram import Update
 from telegram.constants import ChatAction
 from telegram.ext import ContextTypes
 from tools import QueryTool, ResearchTool
+from utils import schola_reply
 
 logger = logging.getLogger(__name__)
 db = DB()
@@ -16,7 +17,7 @@ query_tool = QueryTool()
 
 def _mentioned_otter(text: str) -> bool:
     msg_extract = (text or "")[:32].lower()
-    return any(i in msg_extract for i in ["hi", "hey", "yo"]) and "otter" in msg_extract
+    return "otter" in msg_extract
 
 
 def _parse_research_intent(text: str) -> str | None:
@@ -101,7 +102,8 @@ async def otterhandler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 game_id=game_id,
             )
 
-            await message.reply_text(reply, parse_mode="HTML")
+            # Convert markdown to HTML for consistent formatting
+            await schola_reply(update, reply)
             db.add_chat_message(
                 chat_id=chat_id,
                 chat_type=chat_type,
@@ -115,7 +117,7 @@ async def otterhandler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
         # Otherwise, treat as a rules question. Try to answer using QueryTool (which infers the game).
         answer = query_tool.answer(chat_id=chat_id, user_text=text, explicit_game=None)
-        await message.reply_text(answer, parse_mode="HTML")
+        await schola_reply(update, answer)
 
         # Log assistant answer; try to attach inferred game if answer contains a known game name
         maybe_game_id = None

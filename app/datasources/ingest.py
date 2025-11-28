@@ -2,9 +2,8 @@ import logging
 import os
 from typing import Iterator
 
-from db.sqlite_db import DB
-
 from datasources.faiss_ds import FAISSDS
+from db.sqlite_db import DB
 
 logger = logging.getLogger(__name__)
 db = DB()

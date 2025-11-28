@@ -1,3 +1,3 @@
-from db.sqlite_db import DB
+from .sqlite_db import DB
 
 db = DB()

@@ -1,16 +1,20 @@
-import os, re, logging, pathlib, urllib.parse
+import logging
+import os
+import pathlib
+import re
+import urllib.parse
+from difflib import get_close_matches
 from typing import List, Optional, Tuple
+
 import requests
 from bs4 import BeautifulSoup
-from dotenv import load_dotenv
-from difflib import get_close_matches
-
-from db.sqlite_db import DB
-from schemas import Game, GameNameExtraction
-from llms import openai as llm
-from llms.prompt import QA_SYSTEM_PROMPT
 from datasources.faiss_ds import FAISSDS
 from datasources.ingest import ingest_game_sources
+from db.sqlite_db import DB
+from dotenv import load_dotenv
+from llms import openai as llm
+from llms.prompt import EXTRACT_GAME_NAME_PROMPT, QA_SYSTEM_PROMPT
+from schemas import Game, GameNameExtraction
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -25,9 +29,12 @@ REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", "20"))
 os.makedirs(GAMES_DIR, exist_ok=True)
 os.makedirs(DATASOURCES_DIR, exist_ok=True)
 
+
 def http_get(url: str):
     try:
-        r = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=REQUEST_TIMEOUT)
+        r = requests.get(
+            url, headers={"User-Agent": USER_AGENT}, timeout=REQUEST_TIMEOUT
+        )
         if r.status_code == 200:
             return r
         logger.warning("GET %s -> %s", url, r.status_code)
@@ -36,6 +43,7 @@ def http_get(url: str):
         logger.warning("GET %s failed: %s", url, e)
         return None
 
+
 def html_to_text(html: str) -> str:
     soup = BeautifulSoup(html, "html.parser")
     for tag in soup(["script", "style", "noscript"]):
@@ -43,6 +51,7 @@ def html_to_text(html: str) -> str:
     text = soup.get_text("\n")
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
+
 
 def bgg_canonical_url(game_name: str) -> Optional[str]:
     try:
@@ -63,7 +72,9 @@ def bgg_canonical_url(game_name: str) -> Optional[str]:
     except requests.RequestException:
         return None
 
+
 db = DB()
+
 
 def get_or_create_game(game_name: str) -> Game:
     """Get existing game by name or create new one."""
@@ -93,19 +104,18 @@ def extract_game_name(user_text: str, available_games: List[str]) -> Optional[st
     """
     # Build context with available games
     games_list = ", ".join(available_games) if available_games else "none"
-    prompt = f"""Extract the board game name from the user's message.
-
-Available games in database: {games_list}
-
-User message: {user_text}
-
-If the user is asking about a game, extract its name. If no specific game is mentioned, return null.
-Match against available games if possible."""
 
     try:
         response = llm.client.beta.chat.completions.parse(
             model="gpt-4o",
-            messages=[{"role": "user", "content": prompt}],
+            messages=[
+                {
+                    "role": "user",
+                    "content": EXTRACT_GAME_NAME_PROMPT.format(
+                        games_list=games_list, user_text=user_text
+                    ),
+                }
+            ],
             response_format=GameNameExtraction,
         )
         extraction = response.choices[0].message.parsed
@@ -114,9 +124,13 @@ Match against available games if possible."""
             return None
 
         # Fuzzy match against available games
-        matches = get_close_matches(extraction.game_name, available_games, n=1, cutoff=0.6)
+        matches = get_close_matches(
+            extraction.game_name, available_games, n=1, cutoff=0.6
+        )
         if matches:
-            logger.info(f"Extracted game: {extraction.game_name} -> Matched: {matches[0]}")
+            logger.info(
+                f"Extracted game: {extraction.game_name} -> Matched: {matches[0]}"
+            )
             return matches[0]
 
         # If no match but extraction was confident, return the extracted name
@@ -128,13 +142,20 @@ Match against available games if possible."""
         logger.error(f"Game name extraction failed: {e}")
         return None
 
+
 class ResearchTool:
     def _save_source(self, game: Game, title: str, url: str) -> Tuple[int, int]:
         """Download if HTML/PDF; otherwise record as a link. Returns (downloaded, linked) increments."""
         base_dir = game.store_dir
         r = http_get(url)
         if r is None:
-            db.add_game_source(game_id=game.id, source_type="link", url=url, title=title, local_path=None)
+            db.add_game_source(
+                game_id=game.id,
+                source_type="link",
+                url=url,
+                title=title,
+                local_path=None,
+            )
             return (0, 1)
 
         ct = (r.headers.get("Content-Type") or "").lower()
@@ -147,11 +168,20 @@ class ResearchTool:
             path = os.path.join(base_dir, fname)
             with open(path, "wb") as f:
                 f.write(r.content)
-            db.add_game_source(game_id=game.id, source_type="pdf", url=url, title=title, local_path=path)
+            db.add_game_source(
+                game_id=game.id,
+                source_type="pdf",
+                url=url,
+                title=title,
+                local_path=path,
+            )
             return (1, 0)
 
         # HTML (+ .txt extraction)
-        html_name = urllib.parse.quote(os.path.basename(urllib.parse.urlparse(url).path)) or "page.html"
+        html_name = (
+            urllib.parse.quote(os.path.basename(urllib.parse.urlparse(url).path))
+            or "page.html"
+        )
         if not html_name.endswith(".html"):
             html_name += ".html"
         html_path = os.path.join(base_dir, html_name)
@@ -160,7 +190,13 @@ class ResearchTool:
         txt = html_to_text(r.text)
         with open(html_path.replace(".html", ".txt"), "w", encoding="utf-8") as f:
             f.write(txt)
-        db.add_game_source(game_id=game.id, source_type="html", url=url, title=title, local_path=html_path)
+        db.add_game_source(
+            game_id=game.id,
+            source_type="html",
+            url=url,
+            title=title,
+            local_path=html_path,
+        )
         return (1, 0)
 
     def research(self, game_name: str) -> str:
@@ -176,7 +212,12 @@ class ResearchTool:
         # 2) Always also consider deterministic seeds as a fallback
         seeds: List[Tuple[str, str]] = []
         wiki_slug = game.name.strip().replace(" ", "_")
-        seeds.append((f"{game.name} (Wikipedia)", f"https://en.wikipedia.org/wiki/{urllib.parse.quote(wiki_slug)}"))
+        seeds.append(
+            (
+                f"{game.name} (Wikipedia)",
+                f"https://en.wikipedia.org/wiki/{urllib.parse.quote(wiki_slug)}",
+            )
+        )
         bgg = bgg_canonical_url(game.name)
         if bgg:
             seeds.append((f"{game.name} (BoardGameGeek)", bgg))
@@ -195,9 +236,9 @@ class ResearchTool:
         downloaded = 0
         linked = 0
         for title, url in uniq:
-            d, l = self._save_source(game, title, url)
-            downloaded += d
-            linked += l
+            n_downloaded, n_linked = self._save_source(game, title, url)
+            downloaded += n_downloaded
+            linked += n_linked
 
         # Create FAISS index from downloaded sources
         try:
@@ -214,12 +255,15 @@ class ResearchTool:
         return (
             f"I've created a knowledge base for <b>{game.name}</b> "
             f"with {downloaded} saved files and {linked} links. "
-            f"You can browse them <a href=\"{link}\">here</a>\n"
+            f'You can browse them <a href="{link}">here</a>\n'
             f"Ask me anything about {game.name}! 🦦"
         )
 
+
 class QueryTool:
-    def _search_faiss(self, game_id: int, query: str, top_k: int = 5) -> Tuple[str, List[Tuple[str, str]]]:
+    def _search_faiss(
+        self, game_id: int, query: str, top_k: int = 5
+    ) -> Tuple[str, List[Tuple[str, str]]]:
         """
         Search FAISS index for relevant chunks and return context + citations.
         """
@@ -235,7 +279,9 @@ class QueryTool:
                 file_url = hit.get("file_url", "")
                 score = hit.get("score", 0)
 
-                context_parts.append(f"[Source: {search_key} (score: {score:.2f})]\n{content}")
+                context_parts.append(
+                    f"[Source: {search_key} (score: {score:.2f})]\n{content}"
+                )
                 citations.append((search_key, file_url))
 
             return "\n\n".join(context_parts), citations
@@ -243,7 +289,9 @@ class QueryTool:
             logger.error(f"FAISS search failed for game {game_id}: {e}")
             return "", []
 
-    def answer(self, chat_id: int, user_text: str, explicit_game: Optional[str] = None) -> str:
+    def answer(
+        self, chat_id: int, user_text: str, explicit_game: Optional[str] = None
+    ) -> str:
         """
         Answer user question using:
         1. Structured output to extract game name
@@ -298,13 +346,16 @@ class QueryTool:
             link = f"{API_BASE_URL}/games/{game.id}/files"
             return (
                 f"I have <b>{game.name}</b> in my database but couldn't find relevant information. "
-                f"Browse files <a href=\"{link}\">here</a> 🦦"
+                f'Browse files <a href="{link}">here</a> 🦦'
             )
 
         # Generate answer using LLM
         messages = [
             {"role": "system", "content": QA_SYSTEM_PROMPT},
-            {"role": "user", "content": f"GAME: {game.name}\n\nQUESTION: {user_text}\n\nDOCUMENTS:\n{context_text[:20000]}"},
+            {
+                "role": "user",
+                "content": f"GAME: {game.name}\n\nQUESTION: {user_text}\n\nDOCUMENTS:\n{context_text[:20000]}",
+            },
         ]
         answer = llm.chat(messages=messages)
 
@@ -317,7 +368,9 @@ class QueryTool:
                     seen.add((title, link))
 
             # Format sources with HTML links
-            sources_html = "\n".join(f"• <a href=\"{l}\">{t}</a>" for t, l in uniq)
+            sources_html = "\n".join(
+                f'• <a href="{link}">{text}</a>' for text, link in uniq
+            )
             answer = f"{answer}\n\n<b>Sources:</b>\n{sources_html}"
 
         if not answer.strip().endswith("🦦"):
