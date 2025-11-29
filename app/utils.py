@@ -2,7 +2,7 @@ import html
 import re
 from typing import Optional
 
-from telegram import Update
+from telegram import Update, Chat
 
 # Simple Markdown -> Telegram HTML converter for our bot
 _MD_LINK = re.compile(r"\[([^\]]+)\]\((https?://[^\s)]+)\)")
@@ -10,6 +10,33 @@ _MD_BOLD = re.compile(r"\*\*(.+?)\*\*")
 _MD_ITAL = re.compile(r"__(.+?)__|_(.+?)_")
 _MD_CODE_INLINE = re.compile(r"`([^`]+)`")
 _MD_FENCE = re.compile(r"^```(?:\w+)?\s*([\s\S]*?)\s*```$", re.DOTALL)
+
+
+def is_private_chat(chat_type: str) -> bool:
+    """
+    Check if the chat is a private/direct message.
+
+    Args:
+        chat_type: The chat type from message.chat.type
+
+    Returns:
+        True if private chat, False if group/supergroup/channel
+    """
+    return chat_type == Chat.PRIVATE
+
+
+def mentioned_otter(text: str) -> bool:
+    """
+    Check if 'otter' is mentioned in the first 32 characters of the message.
+
+    Args:
+        text: The message text
+
+    Returns:
+        True if 'otter' is mentioned in first 32 chars, False otherwise
+    """
+    msg_extract = (text or "")[:32].lower()
+    return "otter" in msg_extract
 
 
 def md_to_html(text: str) -> str:

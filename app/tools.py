@@ -523,7 +523,7 @@ class QueryTool:
             # Append internal sources section
             if not answer.strip().endswith("🦦"):
                 answer = answer.strip()
-            answer = f'{answer}\n\n<b>Internal Sources:</b>\n{sources_html}\n<a href="{all_files_link}">📂 View all files for {game.name}</a>'
+            answer = f'{answer}\n\n<b>Internal Sources:</b>\n{sources_html}\n\n<a href="{all_files_link}">📂 View all files for {game.name}</a>'
 
         if not answer.strip().endswith("🦦"):
             answer = answer.strip() + " 🦦"

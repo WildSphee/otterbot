@@ -6,18 +6,13 @@ from telegram import Update
 from telegram.constants import ChatAction
 from telegram.ext import ContextTypes
 from tools import GamesListTool, QueryTool, ResearchTool, classify_user_intent
-from utils import schola_reply
+from utils import is_private_chat, mentioned_otter, schola_reply
 
 logger = logging.getLogger(__name__)
 db = DB()
 research_tool = ResearchTool()
 query_tool = QueryTool()
 games_list_tool = GamesListTool()
-
-
-def _mentioned_otter(text: str) -> bool:
-    msg_extract = (text or "")[:32].lower()
-    return "otter" in msg_extract
 
 
 async def otterhandler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -27,13 +22,17 @@ async def otterhandler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             return
 
         text = message.text.strip()
-        if not _mentioned_otter(text):
-            logger.info("message does not mention otter, disregarding")
-            return
-
         chat = message.chat
         chat_id = chat.id
         chat_type = chat.type
+
+        # In group chats, require "otter" mention
+        # In private chats, respond to all messages
+        if not is_private_chat(chat_type) and not mentioned_otter(text):
+            logger.info(
+                f"Group message does not mention otter, disregarding (chat_type: {chat_type})"
+            )
+            return
         user = message.from_user
         user_id = user.id if user else None
         user_name = (
