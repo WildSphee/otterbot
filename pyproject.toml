@@ -16,6 +16,7 @@ python-dotenv = "^1.1.0"
 beautifulsoup4 = {extras = ["lxml"], version = "^4.13.5"}
 fastapi = "^0.117.1"
 lxml = "^6.0.2"
+youtube-transcript-api = "^0.6.2"
 
 [tool.poetry.group.dev.dependencies]
 ruff = "^0.9.9"

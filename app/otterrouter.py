@@ -84,8 +84,16 @@ async def otterhandler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
         research_game = _parse_research_intent(text)
         if research_game:
-            # Check if we already have it; ResearchTool handles both cases
-            reply = research_tool.research(research_game)
+            # Send initial "on it!" message
+            initial_msg = f"🦦 OtterBot on it! Conducting research on <b>{research_game}</b>... 🔍"
+            await schola_reply(update, initial_msg)
+
+            try:
+                # Check if we already have it; ResearchTool handles both cases
+                reply = research_tool.research(research_game)
+            except Exception as e:
+                logger.error(f"Research failed for {research_game}: {e}")
+                reply = f"😿 Oops! Research failed for <b>{research_game}</b>. Please try again later or check the game name. 🦦"
 
             # Get game ID to tag this chat
             game_data = db.get_game_by_name(research_game)

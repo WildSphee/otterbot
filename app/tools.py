@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 from llms import openai as llm
 from llms.prompt import EXTRACT_GAME_NAME_PROMPT, QA_SYSTEM_PROMPT
 from schemas import Game, GameNameExtraction
+from youtube_transcript_api import YouTubeTranscriptApi
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -51,6 +52,30 @@ def html_to_text(html: str) -> str:
     text = soup.get_text("\n")
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
+
+
+def extract_youtube_id(url: str) -> Optional[str]:
+    """Extract YouTube video ID from URL."""
+    patterns = [
+        r"(?:youtube\.com/watch\?v=|youtu\.be/)([a-zA-Z0-9_-]{11})",
+        r"youtube\.com/embed/([a-zA-Z0-9_-]{11})",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, url)
+        if match:
+            return match.group(1)
+    return None
+
+
+def get_youtube_captions(video_id: str) -> Optional[str]:
+    """Fetch YouTube video captions/transcript."""
+    try:
+        transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
+        captions = " ".join([entry["text"] for entry in transcript_list])
+        return captions
+    except Exception as e:
+        logger.warning(f"Could not fetch captions for YouTube video {video_id}: {e}")
+        return None
 
 
 def bgg_canonical_url(game_name: str) -> Optional[str]:
@@ -145,8 +170,38 @@ def extract_game_name(user_text: str, available_games: List[str]) -> Optional[st
 
 class ResearchTool:
     def _save_source(self, game: Game, title: str, url: str) -> Tuple[int, int]:
-        """Download if HTML/PDF; otherwise record as a link. Returns (downloaded, linked) increments."""
+        """Download if HTML/PDF/YouTube; otherwise record as a link. Returns (downloaded, linked) increments."""
         base_dir = game.store_dir
+
+        # Check if it's a YouTube video
+        video_id = extract_youtube_id(url)
+        if video_id:
+            captions = get_youtube_captions(video_id)
+            if captions:
+                # Save captions as text file
+                filename = f"youtube_{video_id}.txt"
+                path = os.path.join(base_dir, filename)
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(f"YouTube Video: {title}\nURL: {url}\n\n{captions}")
+                db.add_game_source(
+                    game_id=game.id,
+                    source_type="video",
+                    url=url,
+                    title=title,
+                    local_path=path,
+                )
+                return (1, 0)
+            else:
+                # No captions available, save as link
+                db.add_game_source(
+                    game_id=game.id,
+                    source_type="video",
+                    url=url,
+                    title=title,
+                    local_path=None,
+                )
+                return (0, 1)
+
         r = http_get(url)
         if r is None:
             db.add_game_source(
