@@ -94,7 +94,9 @@ def web_search_answer(game_name: str, question: str, context: str = "") -> str:
 
         if content:
             # Strip markdown headers as fallback (in case LLM doesn't follow instructions)
-            content = re.sub(r"^#{1,6}\s+(.+)$", r"<b>\1</b>", content, flags=re.MULTILINE)
+            content = re.sub(
+                r"^#{1,6}\s+(.+)$", r"<b>\1</b>", content, flags=re.MULTILINE
+            )
             # Remove horizontal rules
             content = re.sub(r"^---+\s*$", "", content, flags=re.MULTILINE)
             content = re.sub(r"^\*\*\*+\s*$", "", content, flags=re.MULTILINE)

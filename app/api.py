@@ -379,7 +379,7 @@ def _render_files_html(game: dict, files: List[GameFileOut]) -> str:
             <div class="header">
                 <img src="/assets/images/otterbotlogo.png" alt="OtterBot Logo" class="otter-logo" />
                 <h1>{game["name"]}</h1>
-                <p class="subtitle">Game Resources & Documentation</p>
+                <p class="subtitle">{game.get("description") or "Game Resources & Documentation"}</p>
             </div>
 
             {render_section("📄 PDF Documents", pdfs)}

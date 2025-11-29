@@ -2,7 +2,7 @@ import html
 import re
 from typing import Optional
 
-from telegram import Update, Chat
+from telegram import Chat, Update
 
 # Simple Markdown -> Telegram HTML converter for our bot
 _MD_LINK = re.compile(r"\[([^\]]+)\]\((https?://[^\s)]+)\)")

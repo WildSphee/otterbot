@@ -61,11 +61,20 @@ If the user is asking about a game, extract its name. If no specific game is men
 Match against available games if possible.
 """
 
-GAME_DESCRIPTION_PROMPT = """Based on the following information about the board game "{game_name}", write a concise 2-3 sentence description suitable for a game library listing. Focus on what the game is about, core mechanics, and what makes it interesting.
+GAME_DESCRIPTION_PROMPT = """
+Based on the following information about the board game "{game_name}", 
+write a concise 2-3 sentence, 
+limit to 20 words or less - description suitable for a game library listing. 
+No need to mention the game name in the beginning as its included in the title when inserted into the chat
+structure: mention no. of players, theme, code mechanics, and unique aspects of gameplay.
 
-Sources summary:
+here is an example:
+```example
+Game for <3-5 players>. A strategic game where tech entrepreneurs race to build the top smartphone company. Manage production, marketing, and innovation while reacting to shifting market conditions. Fast, competitive, and highly tactical.
+```
+```Sources summary
 {sources_summary}
-
+```
 Description:"""
 
 INTENT_CLASSIFICATION_PROMPT = """You are an intent classifier for a board game assistant chatbot.

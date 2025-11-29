@@ -16,7 +16,6 @@ from llms import openai as llm
 from llms.prompt import (
     EXTRACT_GAME_NAME_PROMPT,
     INTENT_CLASSIFICATION_PROMPT,
-    QA_SYSTEM_PROMPT,
 )
 from schemas import Game, GameNameExtraction, UserIntent
 from youtube_transcript_api import YouTubeTranscriptApi
@@ -349,15 +348,27 @@ class ResearchTool:
             sources_data = db.list_sources_for_game(game.id)
             summary_parts = []
             for source in sources_data[:5]:  # Use first 5 sources
-                if source.get("local_path") and source["local_path"].endswith(".txt"):
+                local_path = source.get("local_path")
+                if local_path:
                     try:
-                        with open(source["local_path"], "r", encoding="utf-8") as f:
-                            content = f.read()[:500]  # First 500 chars
-                            summary_parts.append(
-                                f"Source: {source.get('title', 'Unknown')}\n{content}"
-                            )
-                    except Exception:
-                        pass
+                        # For HTML sources, check for .txt companion file
+                        if local_path.endswith(".html"):
+                            txt_path = local_path.replace(".html", ".txt")
+                            if os.path.exists(txt_path):
+                                with open(txt_path, "r", encoding="utf-8") as f:
+                                    content = f.read()[:1000]  # First 1000 chars
+                                    summary_parts.append(
+                                        f"Source: {source.get('title', 'Unknown')}\n{content}"
+                                    )
+                        # For direct .txt files (YouTube captions, etc.)
+                        elif local_path.endswith(".txt"):
+                            with open(local_path, "r", encoding="utf-8") as f:
+                                content = f.read()[:1000]  # First 1000 chars
+                                summary_parts.append(
+                                    f"Source: {source.get('title', 'Unknown')}\n{content}"
+                                )
+                    except Exception as e:
+                        logger.warning(f"Failed to read source {local_path}: {e}")
 
             if summary_parts:
                 sources_summary = "\n\n".join(summary_parts)
@@ -365,6 +376,10 @@ class ResearchTool:
                 db.update_game_description(game.id, description)
                 logger.info(
                     f"Generated description for {game.name}: {description[:100]}..."
+                )
+            else:
+                logger.warning(
+                    f"No text content available to generate description for {game.name}"
                 )
         except Exception as e:
             logger.error(f"Failed to generate description for game {game.id}: {e}")
