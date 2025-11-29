@@ -14,7 +14,7 @@ from db.sqlite_db import DB
 from dotenv import load_dotenv
 from llms import openai as llm
 from llms.prompt import EXTRACT_GAME_NAME_PROMPT, QA_SYSTEM_PROMPT
-from schemas import Game, GameNameExtraction
+from schemas import Game, GameNameExtraction, UserIntent
 from youtube_transcript_api import YouTubeTranscriptApi
 
 load_dotenv()
@@ -120,6 +120,62 @@ def get_or_create_game(game_name: str) -> Game:
 
     game_data = db.get_game_by_id(game_id)
     return Game(**game_data)
+
+
+def classify_user_intent(user_text: str, available_games: List[str]) -> UserIntent:
+    """
+    Use OpenAI structured outputs to classify user intent.
+    Returns intent type and extracted game name if applicable.
+    """
+    from openai import OpenAI
+
+    client = OpenAI()
+    games_list = ", ".join(available_games) if available_games else "None"
+
+    intent_prompt = f"""You are an intent classifier for a board game assistant chatbot.
+
+Classify the user's message into one of these intents:
+
+1. **list_games**: User wants to see what games are available in the library
+   - Examples: "what games do you have?", "show me games", "list available games"
+
+2. **research_game**: User wants you to research/download information about a new game
+   - Examples: "research Catan", "can you study Azul?", "learn about Wingspan"
+   - Extract the game name
+
+3. **query_game**: User is asking a question about game rules/mechanics
+   - Examples: "how do you win in Catan?", "what are the setup rules?", "explain the trading phase"
+   - Extract the game name if mentioned, otherwise it can be inferred from context
+
+4. **general_chat**: General conversation, greetings, or unclear intent
+   - Examples: "hello!", "thanks", "how are you?"
+
+Available games in library: {games_list}
+
+User message: "{user_text}"
+
+Classify the intent and extract any game name mentioned."""
+
+    try:
+        response = client.beta.chat.completions.parse(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": intent_prompt}],
+            response_format=UserIntent,
+        )
+        intent = response.choices[0].message.parsed
+        logger.info(
+            f"Intent classified: {intent.intent_type} (game: {intent.game_name}, confidence: {intent.confidence})"
+        )
+        return intent
+    except Exception as e:
+        logger.error(f"Intent classification failed: {e}")
+        # Fallback to general_chat
+        return UserIntent(
+            intent_type="general_chat",
+            game_name=None,
+            confidence="low",
+            reasoning="Classification failed, defaulting to general chat",
+        )
 
 
 def extract_game_name(user_text: str, available_games: List[str]) -> Optional[str]:
