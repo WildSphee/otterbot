@@ -3,7 +3,7 @@ import os
 import traceback
 
 from db.sqlite_db import DB
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, WebAppInfo
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ChatAction
 from telegram.ext import ContextTypes
 from tools import GamesListTool, QueryTool, ResearchTool, classify_user_intent
@@ -64,13 +64,13 @@ async def otterhandler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             # User wants to see available games
             reply = games_list_tool.list_available_games()
 
-            # Create WebApp buttons for ready games
+            # Create URL buttons for ready games (works in both groups and private chats)
             games = db.list_games()
             ready_games = [g for g in games if g["status"] == "ready"]
 
             reply_markup = None
             if ready_games:
-                # Create inline keyboard with WebApp buttons (2 per row)
+                # Create inline keyboard with URL buttons (2 per row)
                 api_base = os.getenv("API_BASE_URL", "http://localhost:8000")
                 keyboard = []
                 for i in range(0, len(ready_games), 2):
@@ -78,11 +78,11 @@ async def otterhandler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                     for game in ready_games[i : i + 2]:
                         game_id = game["id"]
                         game_name = game["name"]
-                        webapp_url = f"{api_base}/games/{game_id}/files"
+                        file_url = f"{api_base}/games/{game_id}/files"
                         row.append(
                             InlineKeyboardButton(
                                 text=f"📂 {game_name}",
-                                web_app=WebAppInfo(url=webapp_url),
+                                url=file_url,
                             )
                         )
                     keyboard.append(row)
@@ -108,7 +108,7 @@ async def otterhandler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 return
 
             # Send initial "on it!" message
-            initial_msg = f"OtterBot on it 🦦 Researching <b>{research_game}</b>..."
+            initial_msg = f"On it! 🦦 Researching <b>{research_game}</b>..."
             await schola_reply(update, initial_msg)
 
             try:
@@ -133,7 +133,7 @@ async def otterhandler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 game_id=game_id,
             )
 
-            # Send reply with WebApp button if we have game_id
+            # Send reply with URL button if we have game_id
             reply_markup = None
             if game_id:
                 reply_markup = create_game_files_button(game_id, research_game)
