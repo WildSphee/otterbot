@@ -60,3 +60,54 @@ User message: {user_text}
 If the user is asking about a game, extract its name. If no specific game is mentioned, return null.
 Match against available games if possible.
 """
+
+GAME_DESCRIPTION_PROMPT = """Based on the following information about the board game "{game_name}", write a concise 2-3 sentence description suitable for a game library listing. Focus on what the game is about, core mechanics, and what makes it interesting.
+
+Sources summary:
+{sources_summary}
+
+Description:"""
+
+INTENT_CLASSIFICATION_PROMPT = """You are an intent classifier for a board game assistant chatbot.
+
+Classify the user's message into one of these intents:
+
+1. **list_games**: User wants to see what games are available in the library
+   - Examples: "what games do you have?", "show me games", "list available games"
+
+2. **research_game**: User wants you to research/download information about a new game
+   - Examples: "research Catan", "can you study Azul?", "learn about Wingspan"
+   - Extract the game name
+
+3. **query_game**: User is asking a question about game rules/mechanics
+   - Examples: "how do you win in Catan?", "what are the setup rules?", "explain the trading phase"
+   - Extract the game name if mentioned, otherwise it can be inferred from context
+
+4. **general_chat**: General conversation, greetings, or unclear intent
+   - Examples: "hello!", "thanks", "how are you?"
+
+Available games in library: {games_list}
+
+User message: "{user_text}"
+
+Classify the intent and extract any game name mentioned."""
+
+WEB_SEARCH_QA_PROMPT = """You are a helpful board game rules assistant.
+
+Game: {game_name}
+Question: {question}
+
+{context_section}
+
+Please answer the user's question about {game_name}. Use web search to find the most accurate and up-to-date information. Cite your sources with clickable links in HTML format: <a href="URL">Source Name</a>
+
+IMPORTANT FORMATTING RULES:
+- DO NOT use markdown headers (###, ##, #)
+- DO NOT use tables
+- DO NOT use horizontal rules (---)
+- Use bullet points (- or •) for lists
+- Use <b>bold</b> and <i>italic</i> HTML tags for emphasis
+- Use numbered lists (1., 2., 3.) when ordering is important
+- Keep formatting simple and clean
+
+Provide a clear, concise answer."""

@@ -3,7 +3,11 @@ import re
 from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
-from llms.prompt import WEB_RESEARCH_PROMPT
+from llms.prompt import (
+    GAME_DESCRIPTION_PROMPT,
+    WEB_RESEARCH_PROMPT,
+    WEB_SEARCH_QA_PROMPT,
+)
 from openai import OpenAI
 
 load_dotenv()
@@ -27,12 +31,9 @@ def call_openai(history, query: str, tools: List = []) -> str:
 
 def generate_game_description(game_name: str, sources_summary: str) -> str:
     """Generate a concise game description from research sources."""
-    prompt = f"""Based on the following information about the board game "{game_name}", write a concise 2-3 sentence description suitable for a game library listing. Focus on what the game is about, core mechanics, and what makes it interesting.
-
-Sources summary:
-{sources_summary[:2000]}
-
-Description:"""
+    prompt = GAME_DESCRIPTION_PROMPT.format(
+        game_name=game_name, sources_summary=sources_summary[:2000]
+    )
 
     messages = [{"role": "user", "content": prompt}]
     description = chat(messages=messages, model="gpt-4o-mini")
@@ -55,6 +56,54 @@ def _extract_json_block(text: str) -> Optional[dict]:
         return json.loads(text)
     except Exception:
         return None
+
+
+def web_search_answer(game_name: str, question: str, context: str = "") -> str:
+    """
+    Answer a game question using web search + internal context.
+    Uses Responses API with web_search tool.
+    """
+    context_section = (
+        "Internal knowledge base context:\n" + context
+        if context
+        else "No internal sources available - search the web for current information."
+    )
+
+    prompt = WEB_SEARCH_QA_PROMPT.format(
+        game_name=game_name, question=question, context_section=context_section
+    )
+
+    try:
+        resp = client.responses.create(
+            model="gpt-4o",  # Using latest GPT-4o (GPT-5 not yet available)
+            input=prompt,
+            tools=[{"type": "web_search"}],
+            temperature=0.2,
+        )
+
+        # Extract answer from response
+        content = getattr(resp, "output_text", None)
+        if not content:
+            chunks = []
+            for item in getattr(resp, "output", []) or []:
+                if item.get("type") == "message" and "content" in item:
+                    for block in item["content"]:
+                        if block.get("type") == "output_text" and "text" in block:
+                            chunks.append(block["text"])
+            content = "\n".join(chunks)
+
+        if content:
+            # Strip markdown headers as fallback (in case LLM doesn't follow instructions)
+            content = re.sub(r"^#{1,6}\s+(.+)$", r"<b>\1</b>", content, flags=re.MULTILINE)
+            # Remove horizontal rules
+            content = re.sub(r"^---+\s*$", "", content, flags=re.MULTILINE)
+            content = re.sub(r"^\*\*\*+\s*$", "", content, flags=re.MULTILINE)
+            return content.strip()
+
+        return "I couldn't find an answer. Please try rephrasing your question."
+    except Exception as e:
+        print(f"Web search failed: {e}")
+        return "Sorry, I encountered an error while searching for that information. Please try again."
 
 
 def web_research_links(

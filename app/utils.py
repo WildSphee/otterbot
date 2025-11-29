@@ -31,6 +31,16 @@ def md_to_html(text: str) -> str:
 
     if has_html:
         # LLM returned mixed HTML + markdown - convert markdown without escaping
+        # Horizontal rule: --- or *** (but not part of list)
+        text = re.sub(r"^---+\s*$", "", text, flags=re.MULTILINE)
+        text = re.sub(r"^\*\*\*+\s*$", "", text, flags=re.MULTILINE)
+
+        # Markdown links [text](url) - need to handle these even with HTML present
+        text = _MD_LINK.sub(
+            lambda m: f'<a href="{m.group(2)}">{m.group(1)}</a>',
+            text,
+        )
+
         # Bold **text**
         text = _MD_BOLD.sub(r"<b>\1</b>", text)
 

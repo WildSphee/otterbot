@@ -82,7 +82,7 @@ async def otterhandler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 return
 
             # Send initial "on it!" message
-            initial_msg = f"🦦 OtterBot on it! Conducting research on <b>{research_game}</b>... 🔍"
+            initial_msg = f"OtterBot on it 🦦 Researching <b>{research_game}</b>..."
             await schola_reply(update, initial_msg)
 
             try:

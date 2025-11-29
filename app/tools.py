@@ -13,7 +13,11 @@ from datasources.ingest import ingest_game_sources
 from db.sqlite_db import DB
 from dotenv import load_dotenv
 from llms import openai as llm
-from llms.prompt import EXTRACT_GAME_NAME_PROMPT, QA_SYSTEM_PROMPT
+from llms.prompt import (
+    EXTRACT_GAME_NAME_PROMPT,
+    INTENT_CLASSIFICATION_PROMPT,
+    QA_SYSTEM_PROMPT,
+)
 from schemas import Game, GameNameExtraction, UserIntent
 from youtube_transcript_api import YouTubeTranscriptApi
 
@@ -132,29 +136,9 @@ def classify_user_intent(user_text: str, available_games: List[str]) -> UserInte
     client = OpenAI()
     games_list = ", ".join(available_games) if available_games else "None"
 
-    intent_prompt = f"""You are an intent classifier for a board game assistant chatbot.
-
-Classify the user's message into one of these intents:
-
-1. **list_games**: User wants to see what games are available in the library
-   - Examples: "what games do you have?", "show me games", "list available games"
-
-2. **research_game**: User wants you to research/download information about a new game
-   - Examples: "research Catan", "can you study Azul?", "learn about Wingspan"
-   - Extract the game name
-
-3. **query_game**: User is asking a question about game rules/mechanics
-   - Examples: "how do you win in Catan?", "what are the setup rules?", "explain the trading phase"
-   - Extract the game name if mentioned, otherwise it can be inferred from context
-
-4. **general_chat**: General conversation, greetings, or unclear intent
-   - Examples: "hello!", "thanks", "how are you?"
-
-Available games in library: {games_list}
-
-User message: "{user_text}"
-
-Classify the intent and extract any game name mentioned."""
+    intent_prompt = INTENT_CLASSIFICATION_PROMPT.format(
+        games_list=games_list, user_text=user_text
+    )
 
     try:
         response = client.beta.chat.completions.parse(
@@ -470,8 +454,9 @@ class QueryTool:
         Answer user question using:
         1. Structured output to extract game name
         2. Fuzzy matching against available games
-        3. FAISS vector search for context
-        4. LLM to generate answer
+        3. FAISS vector search for internal context
+        4. Web search for additional/missing information
+        5. LLM to generate answer with both sources
         """
         # Get available games
         games = db.list_games()
@@ -500,41 +485,26 @@ class QueryTool:
                 "Or ask me to research a new game: 'hey otter, research Azul'. 🦦"
             )
 
-        # Get game from DB
+        # Try to get game from DB for internal context
         game_data = db.get_game_by_name(game_name)
-        if not game_data:
-            return f"I don't have information about <b>{game_name}</b> yet. Ask me to research it first! 🦦"
+        context_text = ""
+        citations = []
 
-        game = Game(**game_data)
+        if game_data and game_data["status"] == "ready":
+            # We have internal sources - search them
+            game = Game(**game_data)
+            context_text, citations = self._search_faiss(game.id, user_text, top_k=5)
 
-        if game.status != "ready":
-            return (
-                f"<b>{game.name}</b> isn't ready yet (status: {game.status}). "
-                f"Try again in a bit, or ask me to continue research. 🦦"
-            )
+        # Use web search to supplement or provide answer
+        # This gives us fresh, comprehensive answers even if we have limited internal data
+        answer = llm.web_search_answer(
+            game_name=game_name,
+            question=user_text,
+            context=context_text[:10000] if context_text else "",
+        )
 
-        # Search FAISS index for relevant context
-        context_text, citations = self._search_faiss(game.id, user_text, top_k=5)
-
-        if not context_text:
-            link = f"{API_BASE_URL}/games/{game.id}/files"
-            return (
-                f"I have <b>{game.name}</b> in my database but couldn't find relevant information. "
-                f'Browse files <a href="{link}">here</a> 🦦'
-            )
-
-        # Generate answer using LLM
-        messages = [
-            {"role": "system", "content": QA_SYSTEM_PROMPT},
-            {
-                "role": "user",
-                "content": f"GAME: {game.name}\n\nQUESTION: {user_text}\n\nDOCUMENTS:\n{context_text[:20000]}",
-            },
-        ]
-        answer = llm.chat(messages=messages)
-
-        # Add citations with HTML links and "View All Files" link
-        if citations:
+        # Add internal citations if we have them
+        if citations and game_data:
             uniq, seen = [], set()
             for title, link in citations[:5]:
                 if (title, link) not in seen:
@@ -547,8 +517,13 @@ class QueryTool:
             )
 
             # Add link to view all files for this game
+            game = Game(**game_data)
             all_files_link = f"{API_BASE_URL}/games/{game.id}/files"
-            answer = f'{answer}\n\n<b>Sources:</b>\n{sources_html}\n\n<a href="{all_files_link}">📂 View all files for {game.name}</a>'
+
+            # Append internal sources section
+            if not answer.strip().endswith("🦦"):
+                answer = answer.strip()
+            answer = f'{answer}\n\n<b>Internal Sources:</b>\n{sources_html}\n<a href="{all_files_link}">📂 View all files for {game.name}</a>'
 
         if not answer.strip().endswith("🦦"):
             answer = answer.strip() + " 🦦"
