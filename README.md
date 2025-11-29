@@ -4,10 +4,25 @@ A Telegram chatbot that serves as a board game assistant for the NCS MA boardgam
 
 ## Features
 
-- 🔍 **Research Mode**: Downloads and indexes game rules, PDFs, and documentation from the web
-- 💬 **Q&A Mode**: Answers questions about game rules using RAG (retrieval-augmented generation)
-- 📚 **Web Interface**: Beautiful HTML interface to browse downloaded game resources
-- 🤖 **Context-Aware**: Remembers conversation history to infer which game you're asking about
+### Core Capabilities
+- 🔍 **Research Mode**: Downloads and indexes game rules, PDFs, YouTube captions, and documentation from the web (up to 30 sources per game)
+- 💬 **Hybrid Q&A**: Combines internal knowledge base with live web search for comprehensive, up-to-date answers
+- 📚 **Web Interface**: Beautiful HTML interface to browse downloaded game resources with PDF previews
+- 🤖 **Smart Intent Routing**: AI-powered intent classification understands natural language queries
+- 🎯 **Context-Aware**: Remembers conversation history to infer which game you're asking about
+
+### Intelligence & Automation
+- 🧠 **AI Intent Detection**: OpenAI-powered intent classification (research, query, list games, general chat)
+- 🌐 **Web Search Integration**: GPT-4o with web search for fresh, accurate answers
+- 📝 **Auto-Generated Descriptions**: Automatically creates game descriptions from research sources
+- 🎥 **YouTube Caption Extraction**: Downloads and indexes video tutorial transcripts
+- 📊 **Smart Chat Type Detection**: Responds differently in groups (requires "otter" mention) vs DMs (no prefix needed)
+
+### User Experience
+- ✨ **Telegram-Optimized Formatting**: Converts markdown/HTML to Telegram-compatible markup
+- 🎨 **Beautiful File Browser**: Modern web interface with OtterBot logo, categorized files, and preview cards
+- 🔗 **Citation Links**: All answers include clickable source citations
+- 📁 **Game Library**: Browse all available games with AI-generated descriptions
 
 ## Quick Start
 
@@ -65,20 +80,28 @@ uvicorn app.api:app --host 0.0.0.0 --port 8000 --reload
 
 ### Using the Bot
 
-**Research a game:**
+**In Group Chats** (requires "otter" mention):
 ```
 hey otter, research Catan
-hey otter, i wanna learn about Wingspan
+otter what games do you have?
+otter how do you win in Wingspan?
 ```
 
-**Ask questions:**
+**In Direct Messages** (no prefix needed):
 ```
-hey otter, what's the setup for Catan?
-hey otter, tell me about winning conditions
+research Catan
+what games are available?
+how do tiebreakers work in Catan?
 ```
 
-**Browse files:**
-Visit `http://your-server:8000/games/{game_id}/files` in your browser for a beautiful interface showing all downloaded resources.
+**Available Commands:**
+- **Research a game**: `otter research [game name]` - Downloads rules, PDFs, YouTube tutorials
+- **Ask questions**: `otter [question about game]` - Answers using internal docs + web search
+- **List games**: `otter what games do you have?` - Shows library with AI-generated descriptions
+- **General chat**: `otter hello` - Friendly conversation
+
+**Browse Files:**
+Visit `http://your-server:8000/games/{game_id}/files` in your browser for a beautiful interface showing all downloaded resources with PDF previews and categorized files.
 
 ## Development
 
@@ -102,21 +125,52 @@ mypy .                     # Type checking
 ```
 otterbot/
 ├── app/
-│   ├── main.py           # Telegram bot entry point
-│   ├── api.py            # FastAPI web server
-│   ├── otterrouter.py    # Message routing and handlers
-│   ├── tools.py          # Research and query tools
-│   ├── utils.py          # Utility functions (HTML/Markdown conversion)
-│   ├── db/               # Database layer
-│   ├── llms/             # OpenAI integration
-│   └── datasources/      # FAISS vector store
+│   ├── main.py              # Telegram bot entry point
+│   ├── api.py               # FastAPI web server with beautiful HTML UI
+│   ├── otterrouter.py       # Message routing with AI intent classification
+│   ├── tools.py             # Research, Query, and GamesListTool
+│   ├── utils.py             # Utility functions (chat detection, markdown conversion)
+│   ├── schemas.py           # Pydantic models (Game, UserIntent, etc.)
+│   ├── db/
+│   │   └── sqlite_db.py     # Database layer with game descriptions
+│   ├── llms/
+│   │   ├── openai.py        # GPT-4o integration with web search
+│   │   └── prompt.py        # Centralized prompt templates
+│   └── datasources/
+│       ├── faiss_ds.py      # FAISS vector store with source URLs
+│       └── ingest.py        # Document ingestion (PDFs, HTML, YouTube)
+├── assets/
+│   └── images/
+│       └── otterbotlogo.png # Bot logo for web interface
 ├── scripts/
-│   ├── start.sh          # Start both services
-│   └── lint.sh           # Linting script
-├── storage/              # Downloaded files and database
-├── CLAUDE.md             # AI assistant documentation
-└── README.md             # This file
+│   ├── start.sh             # Start both services
+│   └── lint.sh              # Code formatting and linting
+├── storage/                 # Downloaded files and database
+│   ├── games/               # Game files organized by ID
+│   └── datasources/         # FAISS indices per game
+├── CLAUDE.md                # AI assistant documentation
+└── README.md                # This file
 ```
+
+## Recent Updates (2025-11-29)
+
+### Major Features Added
+- 🌐 **Web Search Integration**: GPT-4o with live web search for comprehensive answers
+- 🧠 **AI Intent Routing**: Replaced regex with OpenAI-powered intent classification
+- 🎥 **YouTube Caption Support**: Automatically downloads and indexes video tutorial transcripts
+- 📝 **Auto-Generated Descriptions**: Creates game descriptions from research sources using GPT-4o-mini
+- 📚 **Games Library View**: Beautiful listing of all games with descriptions and file links
+- 🎨 **Enhanced Web UI**: OtterBot logo, improved styling, categorized files with previews
+- 💬 **Smart Chat Detection**: Different behavior in groups vs direct messages
+- 🔗 **Better Citations**: Shows both web sources and internal documents with clickable links
+
+### Technical Improvements
+- Centralized all prompts in `llms/prompt.py` for maintainability
+- Improved markdown/HTML conversion with support for mixed formats
+- Added Telegram-safe formatting (no tables, headers, or horizontal rules)
+- Enhanced error handling with user-friendly failure messages
+- Increased research sources from 16 to 30 per game
+- Fixed double-escaping issues in HTML rendering
 
 ## License
 
