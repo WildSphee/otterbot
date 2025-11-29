@@ -369,7 +369,9 @@ class ResearchTool:
                     try:
                         with open(source["local_path"], "r", encoding="utf-8") as f:
                             content = f.read()[:500]  # First 500 chars
-                            summary_parts.append(f"Source: {source.get('title', 'Unknown')}\n{content}")
+                            summary_parts.append(
+                                f"Source: {source.get('title', 'Unknown')}\n{content}"
+                            )
                     except Exception:
                         pass
 
@@ -377,7 +379,9 @@ class ResearchTool:
                 sources_summary = "\n\n".join(summary_parts)
                 description = llm.generate_game_description(game.name, sources_summary)
                 db.update_game_description(game.id, description)
-                logger.info(f"Generated description for {game.name}: {description[:100]}...")
+                logger.info(
+                    f"Generated description for {game.name}: {description[:100]}..."
+                )
         except Exception as e:
             logger.error(f"Failed to generate description for game {game.id}: {e}")
 
@@ -399,7 +403,7 @@ class GamesListTool:
         games = db.list_games()
 
         if not games:
-            return "I don't have any games in my library yet! Ask me to research a game with 'otter research <game name>'. 🦦"
+            return "I don't have any games in my library yet! Ask me to research a game with 'otter research [game name]'. 🦦"
 
         # Separate games by status
         ready_games = [g for g in games if g["status"] == "ready"]
@@ -544,7 +548,7 @@ class QueryTool:
 
             # Add link to view all files for this game
             all_files_link = f"{API_BASE_URL}/games/{game.id}/files"
-            answer = f"{answer}\n\n<b>Sources:</b>\n{sources_html}\n\n<a href=\"{all_files_link}\">📂 View all files for {game.name}</a>"
+            answer = f'{answer}\n\n<b>Sources:</b>\n{sources_html}\n\n<a href="{all_files_link}">📂 View all files for {game.name}</a>'
 
         if not answer.strip().endswith("🦦"):
             answer = answer.strip() + " 🦦"

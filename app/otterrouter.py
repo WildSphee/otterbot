@@ -1,5 +1,4 @@
 import logging
-import re
 import traceback
 
 from db.sqlite_db import DB

@@ -27,7 +27,7 @@ def md_to_html(text: str) -> str:
 
     # Check if text already contains HTML tags
     # If so, only convert markdown patterns without escaping HTML
-    has_html = re.search(r'<[a-z]+[^>]*>', text, re.IGNORECASE)
+    has_html = re.search(r"<[a-z]+[^>]*>", text, re.IGNORECASE)
 
     if has_html:
         # LLM returned mixed HTML + markdown - convert markdown without escaping
@@ -37,6 +37,7 @@ def md_to_html(text: str) -> str:
         # Italic _text_ or __text__
         def ital_repl(m):
             return f"<i>{m.group(1) or m.group(2)}</i>"
+
         text = _MD_ITAL.sub(ital_repl, text)
 
         # Inline code `code`
@@ -103,9 +104,7 @@ async def schola_reply(
     try:
         html_text = md_to_html(message)
 
-        print(
-            f"Original:\n```\n{message}\n```\n\nProcessed:\n```\n{html_text}\n```"
-        )
+        print(f"Original:\n```\n{message}\n```\n\nProcessed:\n```\n{html_text}\n```")
         for chunk in _chunk_telegram(html_text):
             await update.message.reply_text(
                 chunk,

@@ -38,7 +38,9 @@ class UserIntent(BaseModel):
     """Structured output for classifying user intent."""
 
     intent_type: str  # "list_games" | "research_game" | "query_game" | "general_chat"
-    game_name: Optional[str] = None  # Extracted game name if intent involves a specific game
+    game_name: Optional[str] = (
+        None  # Extracted game name if intent involves a specific game
+    )
     confidence: str  # "high" | "medium" | "low"
     reasoning: Optional[str] = None  # Why this intent was chosen
 
