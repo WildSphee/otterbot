@@ -61,6 +61,23 @@ mypy .                     # Type checking
 
 ## Architecture
 
+### Telegram WebApp Integration
+
+The bot uses Telegram's WebApp feature to display game files in a native in-app interface:
+
+**Components:**
+- **WebApp Utilities** (app/webapp.py): Reusable functions for creating WebApp buttons
+  - `create_game_files_button(game_id, game_name)` - Button to view files for a specific game
+  - `create_games_library_button()` - Button to browse all games
+- **Research workflow** (app/otterrouter.py:110-115): Sends WebApp button after researching
+- **Games list** (app/otterrouter.py:72-90): Displays WebApp buttons (2 per row) for all ready games
+- **Display**: FastAPI serves beautiful HTML pages within Telegram's WebApp viewer
+
+**User Experience:**
+1. User researches a game → Bot sends "📂 View [Game] Files" button
+2. User taps button → WebApp opens in-app showing all downloaded files
+3. User can view PDFs, HTML pages, and external links without leaving Telegram
+
 ### Core Flow
 
 **Message handling** (app/otterrouter.py:46 `otterhandler`)

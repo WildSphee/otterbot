@@ -387,12 +387,10 @@ class ResearchTool:
         db.update_game_status(game.id, "ready")
         db.update_game_timestamps(game.id)
 
-        link = f"{API_BASE_URL}/games/{game.id}/files"
         return (
             f"I've created a knowledge base for <b>{game.name}</b> "
-            f"with {downloaded} saved files and {linked} links. "
-            f'You can browse them <a href="{link}">here</a>\n'
-            f"Ask me anything about {game.name}! 🦦"
+            f"with {downloaded} saved files and {linked} links.\n\n"
+            f"Tap the button below to browse files, or ask me anything about {game.name}! 🦦"
         )
 
 
@@ -408,28 +406,24 @@ class GamesListTool:
         ready_games = [g for g in games if g["status"] == "ready"]
         other_games = [g for g in games if g["status"] != "ready"]
 
-        response_parts = ["<b>📚 My Board Game Library:</b>\n"]
+        response_parts = ["<b>📚 My Board Game Library:</b>"]
 
         if ready_games:
-            response_parts.append("\n<b>✅ Ready to answer questions:</b>")
-            for game in ready_games:
-                name = game["name"]
-                desc = game.get("description") or "No description available yet."
-                files_link = f"{API_BASE_URL}/games/{game['id']}/files"
-                response_parts.append(
-                    f"\n• <b>{name}</b>\n"
-                    f"  {desc}\n"
-                    f'  <a href="{files_link}">View files</a>'
-                )
+            response_parts.append(
+                "\nTap the buttons below to browse files, or ask me anything about these games! 🦦"
+            )
+            # for game in ready_games:
+            #     name = game["name"]
+            #     desc = game.get("description") or "No description available yet."
+            #     response_parts.append(f"\n• <b>{name}</b>\n  {desc}")
 
         if other_games:
             response_parts.append(f"\n\n<b>⏳ In progress ({len(other_games)}):</b>")
-            for game in other_games[:5]:  # Show first 5
-                name = game["name"]
-                status = game["status"]
-                response_parts.append(f"• {name} ({status})")
+            # for game in other_games[:5]:  # Show first 5
+            #     name = game["name"]
+            #     status = game["status"]
+            #     response_parts.append(f"• {name} ({status})")
 
-        response_parts.append("\n\nAsk me anything about these games! 🦦")
         return "\n".join(response_parts)
 
 
