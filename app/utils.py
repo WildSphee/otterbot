@@ -25,6 +25,26 @@ def md_to_html(text: str) -> str:
     if text.startswith("`") and text.endswith("`"):
         text = text[1:-1]
 
+    # Check if text already contains HTML tags
+    # If so, only convert markdown patterns without escaping HTML
+    has_html = re.search(r'<[a-z]+[^>]*>', text, re.IGNORECASE)
+
+    if has_html:
+        # LLM returned mixed HTML + markdown - convert markdown without escaping
+        # Bold **text**
+        text = _MD_BOLD.sub(r"<b>\1</b>", text)
+
+        # Italic _text_ or __text__
+        def ital_repl(m):
+            return f"<i>{m.group(1) or m.group(2)}</i>"
+        text = _MD_ITAL.sub(ital_repl, text)
+
+        # Inline code `code`
+        text = _MD_CODE_INLINE.sub(r"<code>\1</code>", text)
+
+        return text.strip()
+
+    # No HTML detected - normal markdown conversion with escaping
     # Escape everything first, then re-inject tags we control
     text = html.escape(text)
 
@@ -82,8 +102,9 @@ async def schola_reply(
     """Send a Telegram reply with graceful Markdown handling and chunking."""
     try:
         html_text = md_to_html(message)
+
         print(
-            f"Replying with HTML before: \n```\n{message}\n\n```\n\n: {html_text}\n```"
+            f"Original:\n```\n{message}\n```\n\nProcessed:\n```\n{html_text}\n```"
         )
         for chunk in _chunk_telegram(html_text):
             await update.message.reply_text(

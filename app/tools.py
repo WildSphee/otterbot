@@ -367,9 +367,9 @@ class QueryTool:
                     uniq.append((title, link))
                     seen.add((title, link))
 
-            # Format sources with HTML links
+            # Format sources with HTML links - prepend API_BASE_URL to relative paths
             sources_html = "\n".join(
-                f'• <a href="{link}">{text}</a>' for text, link in uniq
+                f'• <a href="{API_BASE_URL}{link}">{text}</a>' for text, link in uniq
             )
             answer = f"{answer}\n\n<b>Sources:</b>\n{sources_html}"
 
