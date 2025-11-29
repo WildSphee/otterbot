@@ -82,6 +82,7 @@ def ingest_game_sources(game_id: int) -> str:
                     "search_key": f"{title} - chunk {section_id}",
                     "content": chunk,
                     "file_url": f"{game_id}/{os.path.basename(local_path)}",
+                    "source_url": source.get("url", ""),  # Store original URL
                 }
             )
             section_id += 1

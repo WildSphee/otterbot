@@ -359,7 +359,7 @@ class QueryTool:
         ]
         answer = llm.chat(messages=messages)
 
-        # Add citations with HTML links
+        # Add citations with HTML links and "View All Files" link
         if citations:
             uniq, seen = [], set()
             for title, link in citations[:5]:
@@ -367,11 +367,14 @@ class QueryTool:
                     uniq.append((title, link))
                     seen.add((title, link))
 
-            # Format sources with HTML links - prepend API_BASE_URL to relative paths
+            # Format sources with HTML links (now using original URLs)
             sources_html = "\n".join(
-                f'• <a href="{API_BASE_URL}{link}">{text}</a>' for text, link in uniq
+                f'• <a href="{link}">{text}</a>' for text, link in uniq
             )
-            answer = f"{answer}\n\n<b>Sources:</b>\n{sources_html}"
+
+            # Add link to view all files for this game
+            all_files_link = f"{API_BASE_URL}/games/{game.id}/files"
+            answer = f"{answer}\n\n<b>Sources:</b>\n{sources_html}\n\n<a href=\"{all_files_link}\">📂 View all files for {game.name}</a>"
 
         if not answer.strip().endswith("🦦"):
             answer = answer.strip() + " 🦦"

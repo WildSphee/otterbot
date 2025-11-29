@@ -81,18 +81,21 @@ class FAISSDS:
 
             result = self.documents[idx]
 
-            # Process file URL
-            file_loc = result.get("file_url", "")
-            parts = file_loc.split("/")
-            ds_name = parts[0] if len(parts) > 0 else ""
-            filename = parts[1] if len(parts) > 1 else ""
-            file_url = f"/datasource/{ds_name}/{filename}"
+            # Use source_url if available, otherwise fall back to local file URL
+            source_url = result.get("source_url", "")
+            if not source_url:
+                # Fallback to local file path
+                file_loc = result.get("file_url", "")
+                parts = file_loc.split("/")
+                ds_name = parts[0] if len(parts) > 0 else ""
+                filename = parts[1] if len(parts) > 1 else ""
+                source_url = f"/datasource/{ds_name}/{filename}"
 
             hit = {
                 "id": result["id"],
                 "search_key": result["search_key"],
                 "content": result["content"],
-                "file_url": str(file_url),
+                "file_url": str(source_url),  # Now contains original URL
                 "score": float(score),
             }
             hits.append(hit)
