@@ -303,6 +303,28 @@ class ResearchTool:
             logger.error(f"Failed to create FAISS index for game {game.id}: {e}")
             # Don't fail the whole research, just log the error
 
+        # Generate game description from sources
+        try:
+            # Collect first chunk of text from sources for description generation
+            sources_data = db.list_sources_for_game(game.id)
+            summary_parts = []
+            for source in sources_data[:5]:  # Use first 5 sources
+                if source.get("local_path") and source["local_path"].endswith(".txt"):
+                    try:
+                        with open(source["local_path"], "r", encoding="utf-8") as f:
+                            content = f.read()[:500]  # First 500 chars
+                            summary_parts.append(f"Source: {source.get('title', 'Unknown')}\n{content}")
+                    except Exception:
+                        pass
+
+            if summary_parts:
+                sources_summary = "\n\n".join(summary_parts)
+                description = llm.generate_game_description(game.name, sources_summary)
+                db.update_game_description(game.id, description)
+                logger.info(f"Generated description for {game.name}: {description[:100]}...")
+        except Exception as e:
+            logger.error(f"Failed to generate description for game {game.id}: {e}")
+
         db.update_game_status(game.id, "ready")
         db.update_game_timestamps(game.id)
 
@@ -313,6 +335,43 @@ class ResearchTool:
             f'You can browse them <a href="{link}">here</a>\n'
             f"Ask me anything about {game.name}! 🦦"
         )
+
+
+class GamesListTool:
+    def list_available_games(self) -> str:
+        """List all available games with descriptions and recommendations."""
+        games = db.list_games()
+
+        if not games:
+            return "I don't have any games in my library yet! Ask me to research a game with 'otter research <game name>'. 🦦"
+
+        # Separate games by status
+        ready_games = [g for g in games if g["status"] == "ready"]
+        other_games = [g for g in games if g["status"] != "ready"]
+
+        response_parts = ["<b>📚 My Board Game Library:</b>\n"]
+
+        if ready_games:
+            response_parts.append("\n<b>✅ Ready to answer questions:</b>")
+            for game in ready_games:
+                name = game["name"]
+                desc = game.get("description") or "No description available yet."
+                files_link = f"{API_BASE_URL}/games/{game['id']}/files"
+                response_parts.append(
+                    f"\n• <b>{name}</b>\n"
+                    f"  {desc}\n"
+                    f'  <a href="{files_link}">View files</a>'
+                )
+
+        if other_games:
+            response_parts.append(f"\n\n<b>⏳ In progress ({len(other_games)}):</b>")
+            for game in other_games[:5]:  # Show first 5
+                name = game["name"]
+                status = game["status"]
+                response_parts.append(f"• {name} ({status})")
+
+        response_parts.append("\n\nAsk me anything about these games! 🦦")
+        return "\n".join(response_parts)
 
 
 class QueryTool:

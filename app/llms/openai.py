@@ -25,6 +25,20 @@ def call_openai(history, query: str, tools: List = []) -> str:
     return chat(messages=messages, tools=tools)
 
 
+def generate_game_description(game_name: str, sources_summary: str) -> str:
+    """Generate a concise game description from research sources."""
+    prompt = f"""Based on the following information about the board game "{game_name}", write a concise 2-3 sentence description suitable for a game library listing. Focus on what the game is about, core mechanics, and what makes it interesting.
+
+Sources summary:
+{sources_summary[:2000]}
+
+Description:"""
+
+    messages = [{"role": "user", "content": prompt}]
+    description = chat(messages=messages, model="gpt-4o-mini")
+    return description.strip()
+
+
 # ---------- Responses API helpers ----------
 
 
@@ -44,7 +58,7 @@ def _extract_json_block(text: str) -> Optional[dict]:
 
 
 def web_research_links(
-    topic: str, model: str = "gpt-4o", max_sources: int = 16
+    topic: str, model: str = "gpt-4o", max_sources: int = 30
 ) -> List[Dict[str, Any]]:
     """
     Uses the Responses API with the built-in Web Search tool to return a list of sources.

@@ -34,9 +34,12 @@ Goal: collect the *best* sources for the board game "{topic}" (canonical title).
 Rules:
 - Use web search to find authoritative sources.
 - Prioritize: (1) Official publisher rulebook page/PDF (2) BoardGameGeek game page
-  (3) Official publisher site (4) Rules wikis/guides (5) High-quality tutorial videos.
+  (3) Official publisher site (4) Rules wikis/guides (5) YouTube tutorial videos with captions (6) Other high-quality guides.
+- IMPORTANT: Search for YouTube tutorial videos for the game and include them (e.g., "how to play {topic} tutorial").
 - Prefer direct PDFs of rulebooks when available.
+- For videos, prioritize channels known for board game tutorials (e.g., Watch It Played, JonGetsGames, Shut Up & Sit Down).
 - Return clean, de-duplicated results.
+- Aim for 20-30 high-quality sources.
 
 OUTPUT STRICTLY AS JSON, no commentary:
 {{

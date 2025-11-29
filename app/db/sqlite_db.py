@@ -138,6 +138,15 @@ class DB:
         )
         self.conn.commit()
 
+    def update_game_description(self, game_id: int, description: str):
+        """Update game description by ID."""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "UPDATE games SET description = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (description, game_id),
+        )
+        self.conn.commit()
+
     def add_game_source(
         self,
         game_id: int,

@@ -6,13 +6,14 @@ from db.sqlite_db import DB
 from telegram import Update
 from telegram.constants import ChatAction
 from telegram.ext import ContextTypes
-from tools import QueryTool, ResearchTool
+from tools import GamesListTool, QueryTool, ResearchTool
 from utils import schola_reply
 
 logger = logging.getLogger(__name__)
 db = DB()
 research_tool = ResearchTool()
 query_tool = QueryTool()
+games_list_tool = GamesListTool()
 
 
 def _mentioned_otter(text: str) -> bool:
@@ -48,6 +49,25 @@ def _parse_research_intent(text: str) -> str | None:
     return tail if tail else None
 
 
+def _parse_games_list_intent(text: str) -> bool:
+    """
+    Returns True if this looks like a request to list available games.
+    Handles phrasing like: "what games are available?", "show me games", "list games"
+    """
+    if not _mentioned_otter(text):
+        return False
+    patterns = [
+        r"\b(what|which|show|list|tell me)\b.*(games?|library|collection)\b.*(available|have|got|do you have)",
+        r"\b(show|list|tell me)\b.*(games?|library|collection)",
+        r"\b(what|which)\b.*(games?|library|collection)",
+        r"\bgames?\s+(available|list)",
+    ]
+    for pattern in patterns:
+        if re.search(pattern, text, flags=re.IGNORECASE):
+            return True
+    return False
+
+
 async def otterhandler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
         message = update.message
@@ -81,6 +101,20 @@ async def otterhandler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             message=text,
             role="user",
         )
+
+        # Check if user is asking for games list
+        if _parse_games_list_intent(text):
+            reply = games_list_tool.list_available_games()
+            await schola_reply(update, reply)
+            db.add_chat_message(
+                chat_id=chat_id,
+                chat_type=chat_type,
+                user_id=None,
+                user_name="OtterBot",
+                message=reply,
+                role="assistant",
+            )
+            return
 
         research_game = _parse_research_intent(text)
         if research_game:
