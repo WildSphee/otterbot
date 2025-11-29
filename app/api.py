@@ -26,7 +26,9 @@ STORAGE_DIR = os.getenv("STORAGE_DIR", "storage")
 GAMES_DIR = os.path.join(STORAGE_DIR, "games")
 os.makedirs(GAMES_DIR, exist_ok=True)
 
+# Mount static directories
 app.mount("/files", StaticFiles(directory=GAMES_DIR), name="files")
+app.mount("/assets", StaticFiles(directory="assets"), name="assets")
 
 
 class GameOut(BaseModel):
@@ -217,9 +219,11 @@ def _render_files_html(game: dict, files: List[GameFileOut]) -> str:
                 font-size: 1.1rem;
             }}
 
-            .otter-emoji {{
-                font-size: 3rem;
+            .otter-logo {{
+                width: 120px;
+                height: 120px;
                 margin-bottom: 1rem;
+                object-fit: contain;
             }}
 
             .section {{
@@ -373,7 +377,7 @@ def _render_files_html(game: dict, files: List[GameFileOut]) -> str:
     <body>
         <div class="container">
             <div class="header">
-                <div class="otter-emoji">🦦</div>
+                <img src="/assets/images/otterbotlogo.png" alt="OtterBot Logo" class="otter-logo" />
                 <h1>{game["name"]}</h1>
                 <p class="subtitle">Game Resources & Documentation</p>
             </div>
