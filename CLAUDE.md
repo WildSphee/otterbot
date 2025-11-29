@@ -9,6 +9,29 @@ Otterbot is a Telegram chatbot that serves as a board game assistant for the NCS
 1. **Research**: Downloads and stores game rules/documentation from the web
 2. **Q&A**: Answers user questions about game rules using RAG (retrieval-augmented generation)
 
+## Project Structure
+
+```
+otterbot/
+├── bot/              # Telegram bot code
+│   ├── main.py       # Bot entry point
+│   ├── otterrouter.py # Message routing and intent handling
+│   ├── tools.py      # Research, Query, and Games List tools
+│   ├── webapp.py     # WebApp button utilities
+│   ├── utils.py      # Message formatting helpers
+│   ├── db/           # Database layer
+│   ├── llms/         # OpenAI integration
+│   └── datasources/  # FAISS vector search
+├── api/              # FastAPI web server
+│   ├── server.py     # API endpoints
+│   ├── render.py     # HTML rendering
+│   ├── templates/    # HTML templates
+│   └── static/       # CSS and assets
+├── storage/          # Game files and databases
+├── assets/           # Static assets (images, etc.)
+└── scripts/          # Utility scripts
+```
+
 ## Development Commands
 
 ### Environment Setup
@@ -28,8 +51,8 @@ source venv/bin/activate
 bash scripts/start.sh
 
 # This script:
-# - Starts FastAPI on 0.0.0.0:8000
-# - Starts Telegram bot
+# - Starts FastAPI on 0.0.0.0:8000 (api/server.py)
+# - Starts Telegram bot (bot/main.py)
 # - Tracks PIDs for both processes
 # - Handles cleanup on Ctrl+C (kills both processes)
 ```
@@ -37,10 +60,10 @@ bash scripts/start.sh
 **Alternative: Start services separately**
 ```bash
 # Terminal 1: Start the Telegram bot
-python app/main.py
+python3 bot/main.py
 
 # Terminal 2: Start the FastAPI file server (for browsing stored files)
-uvicorn app.api:app --host 0.0.0.0 --port 8000 --reload
+uvicorn api.server:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 **Important:** The FastAPI server must bind to `0.0.0.0` (not `127.0.0.1`) to be accessible from external browsers. Links sent by the bot (e.g., `https://otterbot.space/games/1/files`) require the API server to be running and accessible.
@@ -66,12 +89,14 @@ mypy .                     # Type checking
 The bot uses Telegram's WebApp feature to display game files in a native in-app interface:
 
 **Components:**
-- **WebApp Utilities** (app/webapp.py): Reusable functions for creating WebApp buttons
+- **WebApp Utilities** (bot/webapp.py): Reusable functions for creating WebApp buttons
   - `create_game_files_button(game_id, game_name)` - Button to view files for a specific game
   - `create_games_library_button()` - Button to browse all games
-- **Research workflow** (app/otterrouter.py:110-115): Sends WebApp button after researching
-- **Games list** (app/otterrouter.py:72-90): Displays WebApp buttons (2 per row) for all ready games
-- **Display**: FastAPI serves beautiful HTML pages within Telegram's WebApp viewer
+- **Research workflow** (bot/otterrouter.py:110-115): Sends WebApp button after researching
+- **Games list** (bot/otterrouter.py:72-90): Displays WebApp buttons (2 per row) for all ready games
+- **Display**: FastAPI (api/server.py) serves beautiful HTML pages within Telegram's WebApp viewer
+  - **Templates**: HTML in api/templates/game_files.html
+  - **Styles**: Responsive CSS in api/static/css/styles.css (mobile-optimized, 2 files per row on phones)
 
 **User Experience:**
 1. User researches a game → Bot sends "📂 View [Game] Files" button
@@ -80,28 +105,31 @@ The bot uses Telegram's WebApp feature to display game files in a native in-app 
 
 ### Core Flow
 
-**Message handling** (app/otterrouter.py:46 `otterhandler`)
+**Message handling** (bot/otterrouter.py:20 `otterhandler`)
 - All Telegram messages are filtered through one handler
-- Only responds to messages mentioning "otter" in the first 32 chars
+- Only responds to messages mentioning "otter" in the first 32 chars (or private chats)
 - Routes to either Research or Query workflow based on intent parsing
 
-**Research workflow** (app/tools.py:115 `ResearchTool.research`)
+**Research workflow** (bot/tools.py:297 `ResearchTool.research`)
 1. Parse "research <game>" intent from message
 2. Call OpenAI Responses API with web_search tool to find sources
 3. Download PDFs and HTML pages, extract text from HTML
-4. Store files in `storage/games/<game-slug>/`
+4. Store files in `storage/games/<game-id>/`
 5. Record sources in SQLite `game_sources` table
-6. Update game status to "ready"
+6. Generate game description using LLM
+7. Update game status to "ready"
+8. Send WebApp button for file browsing
 
-**Query workflow** (app/tools.py:210 `QueryTool.answer`)
+**Query workflow** (bot/tools.py:451 `QueryTool.answer`)
 1. Infer which game user is asking about via:
    - Explicit game name in message
    - Chat history (most recent game mentioned)
-2. Gather text snippets from stored sources
-3. Build context (max 20k chars) and send to OpenAI with QA prompt
-4. Return answer with source citations
+2. Search FAISS vector index for relevant text chunks
+3. Use web search to supplement internal knowledge
+4. Build context and send to OpenAI with QA prompt
+5. Return answer with source citations
 
-### Database Schema (app/db/sqlite_db.py)
+### Database Schema (bot/db/sqlite_db.py)
 
 **games**: Core game records with status tracking
 - `slug`: URL-safe identifier derived from name
@@ -117,22 +145,28 @@ The bot uses Telegram's WebApp feature to display game files in a native in-app 
 - `game_slug`: Tagged game for context inference
 - Used to infer which game user is asking about
 
-### LLM Integration (app/llms/openai.py)
+### LLM Integration (bot/llms/openai.py)
 
 **Research**: Uses OpenAI Responses API (NOT Chat Completions)
 - `client.responses.create()` with `web_search` tool
 - Returns structured JSON with source URLs
-- Prompt in app/llms/prompt.py:15 `WEB_RESEARCH_PROMPT`
+- Prompt in bot/llms/prompt.py:31 `WEB_RESEARCH_PROMPT`
 
-**Q&A**: Uses Chat Completions API
+**Q&A**: Uses Responses API with web_search
+- `client.responses.create()` with `web_search` tool
+- Combines internal FAISS results with web search
+- Prompt in bot/llms/prompt.py:95 `WEB_SEARCH_QA_PROMPT`
+
+**Description Generation**: Uses Chat Completions API
 - `client.chat.completions.create()`
-- Prompt in app/llms/prompt.py:7 `QA_SYSTEM_PROMPT`
+- Generates 2-3 sentence game descriptions
+- Prompt in bot/llms/prompt.py:64 `GAME_DESCRIPTION_PROMPT`
 
-### FastAPI Web Interface (app/api.py)
+### FastAPI Web Interface (api/server.py)
 
-The FastAPI server provides:
+The FastAPI server (api/server.py) provides:
 1. **JSON API endpoints** for programmatic access
-2. **Beautiful HTML interface** for browsing game files
+2. **Beautiful HTML interface** for browsing game files (WebApp-ready)
 
 **Key endpoints:**
 - `GET /games` - List all games (JSON)
@@ -141,7 +175,9 @@ The FastAPI server provides:
 - `GET /files/{game_id}/{filename}` - Serve static files (PDFs, HTML, etc.)
 
 **HTML Interface Features:**
-- Responsive design with gradient background
+- **Mobile-optimized**: 2 files per row on phones, responsive grid on tablets/desktop
+- **Clean separation**: HTML templates (api/templates/) and CSS (api/static/css/)
+- **Rendering**: api/render.py handles HTML generation
 - Files grouped by type (PDFs, Web Pages, External Links)
 - PDF preview thumbnails embedded in cards
 - Hover animations and modern UI
@@ -160,16 +196,14 @@ The FastAPI server provides:
 
 ## Important Patterns
 
-### Slug Generation (app/tools.py:23)
-All game names are converted to URL-safe slugs (lowercase, hyphens, no special chars). Used consistently for directories, DB lookups, and file paths.
-
-### Singleton DB (app/db/sqlite_db.py:10)
+### Singleton DB (bot/db/sqlite_db.py:10)
 The `DB` class uses singleton pattern with thread-safe initialization. Always instantiate as `db = DB()` - you'll get the same instance.
 
-### Game Inference (app/tools.py:172)
+### Game Inference (bot/tools.py:451)
 When user asks a question without naming the game, system checks:
-1. Explicit `game_slug` tags in recent chat messages
-2. Text matching of known game names in conversation history (last 200 msgs)
+1. Explicit game names extracted via LLM structured output
+2. Fuzzy matching against available games
+3. Recent chat context (tagged game_id in chat_log)
 
 ### File Storage Structure
 ```

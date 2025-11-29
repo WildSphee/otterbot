@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ game_name }} - OtterBot Files</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <img src="/assets/images/otterbotlogo.png" alt="OtterBot Logo" class="otter-logo" />
+            <h1>{{ game_name }}</h1>
+            <p class="subtitle">{{ description }}</p>
+        </div>
+
+        {{ sections_html }}
+
+        {% if empty_state %}
+        <div class="section">
+            <div class="empty-state">
+                <div class="empty-state-icon">🎲</div>
+                <p>No files found for this game yet.</p>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</body>
+</html>

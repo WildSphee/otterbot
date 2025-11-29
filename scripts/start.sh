@@ -57,7 +57,7 @@ echo -e "${GREEN}Starting OtterBot services...${NC}"
 
 # Start FastAPI server in background
 echo -e "${GREEN}Starting FastAPI server on 0.0.0.0:8000...${NC}"
-uvicorn app.api:app --host 0.0.0.0 --port 8000 &
+uvicorn api.server:app --host 0.0.0.0 --port 8000 &
 API_PID=$!
 PIDS+=($API_PID)
 echo -e "${GREEN}FastAPI started with PID: $API_PID${NC}"
@@ -67,7 +67,7 @@ sleep 2
 
 # Start Telegram bot in background
 echo -e "${GREEN}Starting Telegram bot...${NC}"
-python3 app/main.py &
+python3 bot/main.py &
 BOT_PID=$!
 PIDS+=($BOT_PID)
 echo -e "${GREEN}Telegram bot started with PID: $BOT_PID${NC}"

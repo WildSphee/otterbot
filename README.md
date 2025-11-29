@@ -72,10 +72,10 @@ Press `Ctrl+C` to stop both services cleanly.
 **Option 2: Run services separately**
 ```bash
 # Terminal 1: Start the Telegram bot
-python app/main.py
+python3 bot/main.py
 
 # Terminal 2: Start the FastAPI server
-uvicorn app.api:app --host 0.0.0.0 --port 8000 --reload
+uvicorn api.server:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 ### Using the Bot
@@ -101,7 +101,9 @@ how do tiebreakers work in Catan?
 - **General chat**: `otter hello` - Friendly conversation
 
 **Browse Files:**
-Visit `http://your-server:8000/games/{game_id}/files` in your browser for a beautiful interface showing all downloaded resources with PDF previews and categorized files.
+- **In Telegram**: Use WebApp buttons sent by the bot (tap "📂 View [Game] Files")
+- **In Browser**: Visit `http://your-server:8000/games/{game_id}/files` for a beautiful interface
+- **Mobile-optimized**: 2 files per row on phones, responsive grid on larger screens
 
 ## Development
 
@@ -124,11 +126,11 @@ mypy .                     # Type checking
 
 ```
 otterbot/
-├── app/
-│   ├── main.py              # Telegram bot entry point
-│   ├── api.py               # FastAPI web server with beautiful HTML UI
+├── bot/                     # Telegram bot code
+│   ├── main.py              # Bot entry point
 │   ├── otterrouter.py       # Message routing with AI intent classification
 │   ├── tools.py             # Research, Query, and GamesListTool
+│   ├── webapp.py            # Telegram WebApp button utilities
 │   ├── utils.py             # Utility functions (chat detection, markdown conversion)
 │   ├── schemas.py           # Pydantic models (Game, UserIntent, etc.)
 │   ├── db/
@@ -139,6 +141,14 @@ otterbot/
 │   └── datasources/
 │       ├── faiss_ds.py      # FAISS vector store with source URLs
 │       └── ingest.py        # Document ingestion (PDFs, HTML, YouTube)
+├── api/                     # FastAPI web server
+│   ├── server.py            # API endpoints
+│   ├── render.py            # HTML rendering logic
+│   ├── templates/           # HTML templates
+│   │   └── game_files.html
+│   └── static/
+│       └── css/
+│           └── styles.css   # Mobile-optimized responsive styles
 ├── assets/
 │   └── images/
 │       └── otterbotlogo.png # Bot logo for web interface
@@ -154,23 +164,30 @@ otterbot/
 
 ## Recent Updates (2025-11-29)
 
+### Refactoring & Architecture
+- 📁 **Reorganized Project**: Renamed `app/` to `bot/`, created separate `api/` folder
+- 🎨 **Decoupled Frontend**: Extracted CSS/HTML into `api/static/` and `api/templates/`
+- 📱 **Mobile-First UI**: Responsive CSS with 2-column grid on phones, adaptive on larger screens
+- 🔧 **Updated Scripts**: Modified `start.sh` to work with new structure
+
 ### Major Features Added
+- 📲 **Telegram WebApp Integration**: View files within Telegram (no external browser needed)
 - 🌐 **Web Search Integration**: GPT-4o with live web search for comprehensive answers
 - 🧠 **AI Intent Routing**: Replaced regex with OpenAI-powered intent classification
 - 🎥 **YouTube Caption Support**: Automatically downloads and indexes video tutorial transcripts
 - 📝 **Auto-Generated Descriptions**: Creates game descriptions from research sources using GPT-4o-mini
-- 📚 **Games Library View**: Beautiful listing of all games with descriptions and file links
-- 🎨 **Enhanced Web UI**: OtterBot logo, improved styling, categorized files with previews
+- 📚 **Games Library View**: Beautiful listing of all games with descriptions and WebApp buttons
 - 💬 **Smart Chat Detection**: Different behavior in groups vs direct messages
 - 🔗 **Better Citations**: Shows both web sources and internal documents with clickable links
 
 ### Technical Improvements
-- Centralized all prompts in `llms/prompt.py` for maintainability
+- Centralized all prompts in `bot/llms/prompt.py` for maintainability
 - Improved markdown/HTML conversion with support for mixed formats
 - Added Telegram-safe formatting (no tables, headers, or horizontal rules)
 - Enhanced error handling with user-friendly failure messages
 - Increased research sources from 16 to 30 per game
-- Fixed double-escaping issues in HTML rendering
+- Fixed game description generation bug
+- Clean separation of concerns: bot logic in `bot/`, API in `api/`
 
 ## License
 
