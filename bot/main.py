@@ -27,6 +27,10 @@ def _set_up_logging() -> None:
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         handlers=[logging.FileHandler(logging_dir), logging.StreamHandler()],
     )
+
+    # Reduce verbosity of Telegram's httpx logs (reduces "HTTP Request: POST..." spam)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+
     logger = logging.getLogger(__name__)
     logger.info(f"Otterbot Logging Set Up Successfully at: {logging_dir.resolve()}")
 
