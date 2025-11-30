@@ -105,6 +105,185 @@ how do tiebreakers work in Catan?
 - **In Browser**: Visit `http://your-server:8000/games/{game_id}/files` for a beautiful interface
 - **Mobile-optimized**: 2 files per row on phones, responsive grid on larger screens
 
+## How It Works
+
+### Research Logic Flow
+
+When you ask OtterBot to research a game (e.g., `otter research Catan`), here's what happens under the hood:
+
+```mermaid
+graph TD
+    A[User: otter research Catan] --> B[Intent Classification<br/>GPT-4o-mini Structured Output]
+    B --> C{Intent: research_game}
+    C --> D[Create/Get Game Record<br/>Status: researching]
+
+    D --> E[Step 1: BGG URL Discovery]
+    E --> F1{Try BGG XML API<br/>with exact=1}
+    F1 -->|Success 200| G1[Use BGG URL]
+    F1 -->|401 Auth Required| F2[Google Search Fallback<br/>site:boardgamegeek.com]
+    F1 -->|Other Error| F2
+    F2 --> G1
+
+    G1 --> H[Step 2: Parallel Fetch<br/>3 concurrent tasks]
+
+    H --> I1[Task 1: Web Research<br/>OpenAI Responses API<br/>Find 20-30 sources]
+    H --> I2[Task 2: BGG Metadata<br/>Fetch actual BGG page<br/>Extract difficulty & players]
+    H --> I3[Task 3: YouTube Search<br/>Find tutorial video]
+
+    I1 --> J1[Source URLs List]
+
+    I2 --> K1{BGG Page Accessible?}
+    K1 -->|200 OK| K2[Parse HTML + JSON-LD<br/>Extract 8000 chars]
+    K1 -->|404/Error| K3[No BGG data<br/>bgg_url = null]
+    K2 --> K4[LLM Extracts:<br/>difficulty, player_count]
+    K4 --> J2[BGG Metadata]
+    K3 --> J2
+
+    I3 --> L1{Video Found?}
+    L1 -->|No| L2[Google YouTube Fallback]
+    L1 -->|Yes| L3[Validate Video URL<br/>YouTube oEmbed API]
+    L2 --> L3
+    L3 -->|Valid| J3[YouTube URL]
+    L3 -->|Invalid/Deleted| L4[No video<br/>video_url = null]
+    L4 --> J3
+
+    J1 --> M[Combine & Deduplicate Sources]
+    J2 --> M
+    J3 --> M
+
+    M --> N{For Each Source}
+    N -->|PDF| O1[Download PDF<br/>Save to storage/]
+    N -->|HTML| O2[Download HTML<br/>Extract text to .txt]
+    N -->|YouTube| O3[Fetch captions<br/>Save as .txt]
+    N -->|Link only| O4[Save URL<br/>No download]
+
+    O1 --> P[Create FAISS Index<br/>Embed all text chunks<br/>OpenAI embeddings]
+    O2 --> P
+    O3 --> P
+    O4 --> P
+
+    P --> Q[Generate Description<br/>GPT-4o-mini<br/>From source summaries]
+
+    Q --> R[Save All Metadata<br/>BGG URL, YouTube, difficulty, players, description]
+
+    R --> S[Status: ready]
+
+    S --> T["Send Response:<br/>📚 Files count<br/>📝 Description<br/>📊 Difficulty & Players<br/>📺 YouTube tutorial<br/>🎲 BGG link<br/>📂 WebApp button"]
+
+    style A fill:#e1f5ff
+    style T fill:#d4edda
+    style H fill:#fff3cd
+    style K1 fill:#ffe6e6
+    style L3 fill:#ffe6e6
+    style P fill:#f8d7da
+```
+
+#### Key Steps Explained
+
+1. **Intent Classification** (bot/otterrouter.py:60)
+   - Uses GPT-4o-mini structured output to classify user intent
+   - Extracts game name from natural language
+
+2. **BGG URL Discovery** (bot/tools.py:118-165)
+   - **First**: Try BGG XML API with `exact=1` parameter for better matching
+   - **If 401**: BGG now requires authentication - falls back to Google search
+   - **Google Fallback**: Searches `site:boardgamegeek.com/boardgame` for accurate URL
+
+3. **Parallel Data Fetching** (bot/tools.py:390-418) - 3 concurrent tasks:
+   - **Task 1 - Web Research**: OpenAI Responses API finds 20-30 authoritative sources
+   - **Task 2 - BGG Metadata**: Fetches actual BGG page HTML, extracts 8000 chars including JSON-LD, LLM parses difficulty & player count
+   - **Task 3 - YouTube**: Searches for tutorial, validates URL with oEmbed API, falls back to Google if needed
+
+4. **YouTube Validation** (bot/tools.py:73-105, 425-431)
+   - Uses YouTube oEmbed API to check if video exists
+   - Filters out deleted/unavailable videos
+   - Google search fallback if initial search fails
+
+5. **Source Download & Processing** (bot/tools.py:244-361)
+   - **PDFs**: Downloaded and stored as-is
+   - **HTML Pages**: Downloaded + text extracted to companion .txt file
+   - **YouTube Videos**: Captions fetched via YouTube Transcript API and saved as .txt
+   - **External Links**: URL saved without download (for references, videos without captions)
+
+6. **Vector Index Creation** (datasources/ingest.py)
+   - All text files chunked into ~500-token segments
+   - Embedded using OpenAI text-embedding-3-small
+   - Stored in FAISS index for semantic search
+
+7. **Metadata Enrichment** (bot/llms/openai.py:161-240, bot/tools.py:467-511)
+   - LLM extracts **actual** difficulty score and player count from real BGG HTML content
+   - Auto-generates 2-3 sentence game description from downloaded sources
+   - Saves BGG URL (validated), YouTube link (validated), difficulty, player count, description
+
+8. **Response** (bot/tools.py:525-561, bot/otterrouter.py:135-140)
+   - Sends message with game description, metadata, and links
+   - Includes difficulty, player count, YouTube tutorial, BGG link
+   - Attaches WebApp button to browse files in Telegram
+   - Updates game status to "ready"
+
+### Query Logic Flow
+
+When you ask a question about a game (e.g., `otter how do you win in Catan?`):
+
+```mermaid
+graph TD
+    A[User: otter how do you win in Catan?] --> B[Intent Classification<br/>OpenAI GPT-4o-mini]
+    B --> C{Intent Type}
+    C -->|query_game| D[Extract Game Name<br/>Structured Output + Fuzzy Match]
+
+    D --> E{Game Identified?}
+    E -->|No| F1[Check Recent Chat History<br/>Find last mentioned game]
+    F1 --> E
+    E -->|Still No| G[Ask User to Clarify]
+
+    E -->|Yes| H{Game in DB?}
+
+    H -->|Yes, Ready| I1[FAISS Vector Search<br/>Find top 5 relevant chunks]
+    H -->|No or Not Ready| I2[No Internal Context<br/>Use web search only]
+
+    I1 --> J1[Internal Context + Citations]
+    I2 --> J2[Empty Context]
+
+    J1 --> K[OpenAI Responses API<br/>with Web Search]
+    J2 --> K
+
+    K --> L[Generate Answer<br/>Hybrid: Internal Docs + Web]
+
+    L --> M{Has Internal Sources?}
+
+    M -->|Yes| N1[Append Internal Citations<br/>with file links]
+    M -->|No| N2[Add Disclaimer:<br/>Haven't researched this game yet]
+
+    N1 --> O[Send Answer + Sources + 🦦]
+    N2 --> O
+
+    style A fill:#e1f5ff
+    style O fill:#d4edda
+    style K fill:#fff3cd
+    style N2 fill:#f8d7da
+```
+
+#### Query Steps Explained
+
+1. **Game Name Extraction** (bot/tools.py:164-207)
+   - LLM extracts game name from question
+   - Fuzzy matches against available games (60% similarity threshold)
+   - Falls back to recent chat history if no explicit mention
+
+2. **Context Retrieval** (bot/tools.py:481-507)
+   - If game is researched: FAISS semantic search for relevant chunks
+   - Returns top 5 most relevant passages + source citations
+
+3. **Hybrid Answer Generation** (bot/llms/openai.py:63-110)
+   - OpenAI Responses API with web_search tool
+   - Combines internal knowledge base + live web search
+   - Ensures fresh, comprehensive answers
+
+4. **Source Attribution** (bot/tools.py:566-600)
+   - **Researched games**: Shows internal file citations + link to full file browser
+   - **Non-researched games**: Adds disclaimer suggesting research for better results
+   - All answers end with 🦦
+
 ## Development
 
 ### Code Quality
@@ -162,7 +341,27 @@ otterbot/
 └── README.md                # This file
 ```
 
-## Recent Updates (2025-11-29)
+## Recent Updates
+
+### 2025-11-30: Critical Reliability & Accuracy Fixes
+
+#### BGG Integration Fixes
+- 🔧 **Fixed BGG XML API 401 Errors**: BGG now requires authentication tokens - added automatic Google search fallback
+- ✅ **Accurate BGG Metadata**: Now fetches actual BGG page HTML (8000 chars + JSON-LD) instead of using web search
+- 🎯 **Ground Truth Data**: Difficulty and player count are guaranteed from real BGG pages (never hallucinated)
+- 🔗 **URL Validation**: If BGG page is inaccessible (404/timeout), link is removed entirely
+
+#### YouTube Validation
+- ✓ **Video Validation**: Added YouTube oEmbed API validation to filter out deleted/unavailable videos
+- 🔄 **Google Fallback**: If initial YouTube search fails, automatically tries Google search
+- 📺 **Reliable Links**: Only shows YouTube tutorials that are verified to exist
+
+#### Enhanced Research Output
+- 📝 **Game Descriptions**: Now includes AI-generated game description in research completion message
+- 🐛 **Debug Logging**: Comprehensive logging at all decision points ([BGG], [YouTube], [Research])
+- 📊 **Transparent**: Logs show exactly what's being fetched and extracted
+
+### 2025-11-29: Architecture & Features
 
 ### Refactoring & Architecture
 - 📁 **Reorganized Project**: Renamed `app/` to `bot/`, created separate `api/` folder
