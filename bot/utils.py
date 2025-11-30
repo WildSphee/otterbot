@@ -6,7 +6,8 @@ from telegram import Chat, Update
 
 # Simple Markdown -> Telegram HTML converter for our bot
 _MD_LINK = re.compile(r"\[([^\]]+)\]\((https?://[^\s)]+)\)")
-_MD_BOLD = re.compile(r"\*\*(.+?)\*\*")
+_MD_BOLD_DOUBLE = re.compile(r"\*\*(.+?)\*\*")  # **bold**
+_MD_BOLD_SINGLE = re.compile(r"\*(.+?)\*")  # *bold*
 _MD_ITAL = re.compile(r"__(.+?)__|_(.+?)_")
 _MD_CODE_INLINE = re.compile(r"`([^`]+)`")
 _MD_FENCE = re.compile(r"^```(?:\w+)?\s*([\s\S]*?)\s*```$", re.DOTALL)
@@ -68,8 +69,10 @@ def md_to_html(text: str) -> str:
             text,
         )
 
-        # Bold **text**
-        text = _MD_BOLD.sub(r"<b>\1</b>", text)
+        # Bold **text** (must be before single * to avoid conflicts)
+        text = _MD_BOLD_DOUBLE.sub(r"<b>\1</b>", text)
+        # Bold *text* (single asterisk)
+        text = _MD_BOLD_SINGLE.sub(r"<b>\1</b>", text)
 
         # Italic _text_ or __text__
         def ital_repl(m):
@@ -92,8 +95,10 @@ def md_to_html(text: str) -> str:
         text,
     )
 
-    # Bold **text**
-    text = _MD_BOLD.sub(r"<b>\1</b>", text)
+    # Bold **text** (must be before single * to avoid conflicts)
+    text = _MD_BOLD_DOUBLE.sub(r"<b>\1</b>", text)
+    # Bold *text* (single asterisk)
+    text = _MD_BOLD_SINGLE.sub(r"<b>\1</b>", text)
 
     # Italic _text_ or __text__
     def ital_repl(m):

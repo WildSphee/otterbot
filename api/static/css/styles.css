@@ -40,11 +40,55 @@ body {
     line-height: 1.4;
 }
 
+.game-metadata {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    justify-content: center;
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid #e9ecef;
+}
+
+.metadata-item {
+    background: #f8f9fa;
+    padding: 0.4rem 0.8rem;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    color: #495057;
+    font-weight: 500;
+}
+
+.metadata-link {
+    background: #667eea;
+    color: white;
+    text-decoration: none;
+    transition: all 0.2s ease;
+}
+
+.metadata-link:hover {
+    background: #5568d3;
+    transform: scale(1.05);
+}
+
 .otter-logo {
     width: 80px;
     height: 80px;
     margin-bottom: 0.75rem;
     object-fit: contain;
+}
+
+.youtube-container {
+    background: white;
+    padding: 1rem;
+    border-radius: 16px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+    margin-bottom: 1.5rem;
+}
+
+.youtube-container iframe {
+    border-radius: 12px;
+    max-width: 100%;
 }
 
 .section {
@@ -258,6 +302,25 @@ body {
 
     .empty-state-icon {
         font-size: 4rem;
+    }
+
+    .game-metadata {
+        gap: 1rem;
+        margin-top: 1.5rem;
+        padding-top: 1.5rem;
+    }
+
+    .metadata-item {
+        padding: 0.5rem 1rem;
+        font-size: 1rem;
+    }
+
+    .youtube-container {
+        padding: 1.5rem;
+    }
+
+    .youtube-container iframe {
+        height: 500px;
     }
 }
 

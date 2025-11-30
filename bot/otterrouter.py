@@ -107,8 +107,7 @@ async def otterhandler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 await schola_reply(update, reply)
                 return
 
-            # Send initial "on it!" message
-            initial_msg = f"On it! 🦦 Researching <b>{research_game}</b>..."
+            initial_msg = f"On it 🦦 Researching <b>{research_game}</b>..."
             await schola_reply(update, initial_msg)
 
             try:

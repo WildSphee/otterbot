@@ -70,7 +70,7 @@ structure: mention no. of players, theme, code mechanics, and unique aspects of 
 
 here is an example:
 ```example
-Game for <3-5 players>. A strategic game where tech entrepreneurs race to build the top smartphone company. Manage production, marketing, and innovation while reacting to shifting market conditions. Fast, competitive, and highly tactical.
+A strategic game where tech entrepreneurs race to build the top smartphone company. Manage production, marketing, and innovation while reacting to shifting market conditions. Fast, competitive, and highly tactical.
 ```
 ```Sources summary
 {sources_summary}
@@ -120,3 +120,64 @@ IMPORTANT FORMATTING RULES:
 - Keep formatting simple and clean
 
 Provide a clear, concise answer."""
+
+BGG_METADATA_EXTRACTION_PROMPT = """You are analyzing the ACTUAL BoardGameGeek page content for "{game_name}".
+
+IMPORTANT: Extract data ONLY from this page content. Do NOT use your prior knowledge or make up numbers.
+
+Extract the following from THIS PAGE ONLY:
+
+1. **Complexity/Weight Score** (number from 1.0 to 5.0):
+   - BoardGameGeek shows this as "Weight" or "Complexity"
+   - Usually displayed as "X.XX / 5" or "Weight: X.XX"
+   - Common labels: "Community", "Weight", "Complexity", "Average Weight"
+   - Example: "Weight: 2.45 / 5" → extract 2.45
+   - If not found on this page, return null
+
+2. **Player Count** (string format):
+   - Look for "Players:" or "Best:" or "# of Players"
+   - Format as range (e.g., "1-4", "2-5") or single number ("4")
+   - Some pages show "Best with X players" or "Recommended: X players"
+   - If not found on this page, return null
+
+Page content (THIS IS THE ONLY SOURCE OF TRUTH):
+{page_content}
+
+Return ONLY a JSON object:
+{{
+  "difficulty_score": 2.45,
+  "player_count": "1-5",
+  "bgg_url": null
+}}
+
+CRITICAL RULES:
+- difficulty_score must be a float between 1.0 and 5.0, or null
+- player_count must be a string like "2-4" or "1-5", or null
+- bgg_url should always be null (we provide this separately)
+- If you cannot find a value in the page content, use null
+- DO NOT guess or use prior knowledge"""
+
+YOUTUBE_TUTORIAL_SEARCH_PROMPT = """Find the best YouTube tutorial video for learning how to play the board game "{game_name}".
+
+Use web search to find YouTube tutorial videos. Search specifically for:
+- "how to play {game_name} tutorial"
+- "{game_name} rules explanation"
+- Official publisher channels
+- Videos with clear titles mentioning "how to play" or "tutorial"
+
+IMPORTANT: You MUST find at least one YouTube tutorial video. Search YouTube directly if needed.
+Prefer videos from well-known board game channels with good production quality.
+
+Return ONLY a JSON object with the FULL YouTube URL:
+{{
+  "video_url": "https://www.youtube.com/watch?v=abc123",
+  "video_title": "How to Play Catan - Official Tutorial",
+  "channel_name": "Watch It Played"
+}}
+
+Only return null values if you absolutely cannot find ANY YouTube video about this game after thorough searching:
+{{
+  "video_url": null,
+  "video_title": null,
+  "channel_name": null
+}}"""

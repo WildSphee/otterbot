@@ -87,6 +87,53 @@ def render_game_files_html(game: dict, files: List) -> str:
     game_name = game["name"]
     description = game.get("description") or "Game Resources & Documentation"
 
+    # Build metadata display
+    metadata_html = ""
+    metadata_items = []
+    if game.get("difficulty_score"):
+        difficulty = game["difficulty_score"]
+        metadata_items.append(
+            f'<span class="metadata-item">⚙️ Difficulty: {difficulty}/5.0</span>'
+        )
+    if game.get("player_count"):
+        player_count = game["player_count"]
+        metadata_items.append(
+            f'<span class="metadata-item">👥 Players: {player_count}</span>'
+        )
+    if game.get("bgg_url"):
+        bgg_url = game["bgg_url"]
+        metadata_items.append(
+            f'<a href="{bgg_url}" target="_blank" class="metadata-item metadata-link">🎲 BoardGameGeek</a>'
+        )
+
+    if metadata_items:
+        metadata_html = f'<div class="game-metadata">{" ".join(metadata_items)}</div>'
+
+    # Embed YouTube video if available
+    youtube_embed = ""
+    if game.get("tutorial_video_url"):
+        video_url = game["tutorial_video_url"]
+        # Extract video ID from YouTube URL
+        video_id = None
+        if "youtube.com/watch?v=" in video_url:
+            video_id = video_url.split("watch?v=")[1].split("&")[0]
+        elif "youtu.be/" in video_url:
+            video_id = video_url.split("youtu.be/")[1].split("?")[0]
+
+        if video_id:
+            youtube_embed = f"""
+            <div class="youtube-container">
+                <iframe
+                    width="100%"
+                    height="400"
+                    src="https://www.youtube.com/embed/{video_id}"
+                    frameborder="0"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allowfullscreen>
+                </iframe>
+            </div>
+            """
+
     html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -101,7 +148,10 @@ def render_game_files_html(game: dict, files: List) -> str:
             <img src="/assets/images/otterbotlogo.png" alt="OtterBot Logo" class="otter-logo" />
             <h1>{game_name}</h1>
             <p class="subtitle">{description}</p>
+            {metadata_html}
         </div>
+
+        {youtube_embed}
 
         {sections_html}
 

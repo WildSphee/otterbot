@@ -36,6 +36,10 @@ class DB:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL UNIQUE,
                 description TEXT,
+                difficulty_score REAL,
+                player_count TEXT,
+                bgg_url TEXT,
+                tutorial_video_url TEXT,
                 status TEXT DEFAULT 'created',
                 store_dir TEXT NOT NULL,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -146,6 +150,39 @@ class DB:
             (description, game_id),
         )
         self.conn.commit()
+
+    def update_game_metadata(
+        self,
+        game_id: int,
+        difficulty_score: float = None,
+        player_count: str = None,
+        bgg_url: str = None,
+        tutorial_video_url: str = None,
+    ):
+        """Update game metadata (difficulty, player count, BGG URL, tutorial video)."""
+        cursor = self.conn.cursor()
+        updates = []
+        params = []
+
+        if difficulty_score is not None:
+            updates.append("difficulty_score = ?")
+            params.append(difficulty_score)
+        if player_count is not None:
+            updates.append("player_count = ?")
+            params.append(player_count)
+        if bgg_url is not None:
+            updates.append("bgg_url = ?")
+            params.append(bgg_url)
+        if tutorial_video_url is not None:
+            updates.append("tutorial_video_url = ?")
+            params.append(tutorial_video_url)
+
+        if updates:
+            updates.append("updated_at = CURRENT_TIMESTAMP")
+            params.append(game_id)
+            query = f"UPDATE games SET {', '.join(updates)} WHERE id = ?"
+            cursor.execute(query, params)
+            self.conn.commit()
 
     def add_game_source(
         self,

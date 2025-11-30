@@ -70,6 +70,44 @@ def extract_youtube_id(url: str) -> Optional[str]:
     return None
 
 
+def validate_youtube_url(video_url: str) -> bool:
+    """
+    Validate if a YouTube video exists and is accessible.
+    Returns True if video is valid, False otherwise.
+    """
+    try:
+        video_id = extract_youtube_id(video_url)
+        if not video_id:
+            logger.warning(
+                f"[YouTube Validation] Invalid YouTube URL format: {video_url}"
+            )
+            return False
+
+        logger.info(f"[YouTube Validation] Checking if video exists: {video_id}")
+
+        # Try to fetch video info using a HEAD request to the embed URL
+        # This is lightweight and doesn't require API keys
+        embed_url = f"https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v={video_id}&format=json"
+
+        response = requests.get(embed_url, timeout=10)
+
+        if response.status_code == 200:
+            logger.info(f"[YouTube Validation] ✓ Video exists: {video_id}")
+            return True
+        else:
+            logger.warning(
+                f"[YouTube Validation] ✗ Video not found or unavailable: {video_id} (status: {response.status_code})"
+            )
+            return False
+
+    except requests.RequestException as e:
+        logger.error(f"[YouTube Validation] Error validating video: {e}")
+        return False
+    except Exception as e:
+        logger.error(f"[YouTube Validation] Unexpected error: {e}")
+        return False
+
+
 def get_youtube_captions(video_id: str) -> Optional[str]:
     """Fetch YouTube video captions/transcript."""
     try:
@@ -82,22 +120,73 @@ def get_youtube_captions(video_id: str) -> Optional[str]:
 
 
 def bgg_canonical_url(game_name: str) -> Optional[str]:
+    """Get BoardGameGeek URL using XML API search."""
     try:
+        logger.info(f"[BGG] Searching for game: '{game_name}'")
+
+        # BGG now requires authentication for XML API (as of late 2024)
+        # Try without auth first, then fall back to Google if 401
+        headers = {"User-Agent": USER_AGENT}
+
+        # Try with exact=1 first for better matching
+        params = {"query": game_name, "type": "boardgame", "exact": 1}
+
         s = requests.get(
             "https://boardgamegeek.com/xmlapi2/search",
-            params={"query": game_name, "type": "boardgame"},
-            headers={"User-Agent": USER_AGENT},
+            params=params,
+            headers=headers,
             timeout=REQUEST_TIMEOUT,
         )
-        if s.status_code != 200 or "<items" not in s.text:
+        logger.info(f"[BGG] API response status: {s.status_code}")
+
+        # If 401, BGG requires authentication now - skip XML API
+        if s.status_code == 401:
+            logger.warning(
+                "[BGG] API returned 401 (authentication required) - BGG now requires API token"
+            )
+            logger.info("[BGG] Falling back to Google search (more reliable)")
             return None
+
+        if s.status_code != 200:
+            logger.warning(f"[BGG] API returned non-200 status: {s.status_code}")
+            return None
+
+        if "<items" not in s.text:
+            logger.warning(
+                f"[BGG] No items in response. Response preview: {s.text[:200]}"
+            )
+            return None
+
         soup = BeautifulSoup(s.text, "xml")
-        item = soup.find("item")
-        if not item or not item.get("id"):
+        items = soup.find_all("item")
+
+        if not items:
+            logger.warning(f"[BGG] No game items found for '{game_name}'")
             return None
-        game_id = item.get("id")
-        return f"https://boardgamegeek.com/boardgame/{game_id}"
-    except requests.RequestException:
+
+        logger.info(f"[BGG] Found {len(items)} results:")
+        for idx, item in enumerate(items[:5]):  # Log first 5 results
+            item_id = item.get("id")
+            item_name = item.find("name")
+            name_text = item_name.get("value") if item_name else "Unknown"
+            logger.info(f"[BGG]   Result {idx + 1}: ID={item_id}, Name='{name_text}'")
+
+        # Use first result
+        first_item = items[0]
+        game_id = first_item.get("id")
+        game_title = first_item.find("name")
+        title_text = game_title.get("value") if game_title else "Unknown"
+
+        url = f"https://boardgamegeek.com/boardgame/{game_id}"
+        logger.info(f"[BGG] ✓ Selected: '{title_text}' (ID: {game_id})")
+        logger.info(f"[BGG] ✓ URL: {url}")
+        return url
+
+    except requests.RequestException as e:
+        logger.error(f"[BGG] Request failed: {e}")
+        return None
+    except Exception as e:
+        logger.error(f"[BGG] Unexpected error: {e}")
         return None
 
 
@@ -294,16 +383,70 @@ class ResearchTool:
         return (1, 0)
 
     def research(self, game_name: str) -> str:
+        logger.info(f"[RESEARCH] Starting research for: '{game_name}'")
         game = get_or_create_game(game_name)
+        logger.info(f"[RESEARCH] Game ID: {game.id}, Status: {game.status}")
+
         if game.status in {"ready", "researched"}:
+            logger.info("[RESEARCH] Game already researched, skipping")
             return f"I already have research on <b>{game.name}</b>. How can I help? 🦦"
 
         db.update_game_status(game.id, "researching")
+        logger.info("[RESEARCH] Updated status to 'researching'")
 
-        # 1) Ask OpenAI Web Search to gather sources
-        sources = llm.web_research_links(game.name)
+        # 1) First get deterministic BGG URL using XML API (prevents hallucination)
+        logger.info("[RESEARCH] Step 1: Getting BGG URL via XML API...")
+        bgg_url = bgg_canonical_url(game.name)
+        logger.info(f"[RESEARCH] BGG URL result: {bgg_url or 'Not found'}")
 
-        # 2) Always also consider deterministic seeds as a fallback
+        # If BGG XML API fails, try Google search as fallback
+        if not bgg_url:
+            logger.info(
+                "[RESEARCH] BGG XML API failed, trying Google search fallback..."
+            )
+            bgg_url = llm.google_search_bgg_url(game.name)
+            logger.info(f"[RESEARCH] Google BGG result: {bgg_url or 'Not found'}")
+
+        # 2) Ask OpenAI Web Search to gather sources, BGG metadata, and YouTube tutorial in parallel
+        logger.info(
+            "[RESEARCH] Step 2: Starting parallel fetch (sources, BGG metadata, YouTube)..."
+        )
+        import concurrent.futures
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+            sources_future = executor.submit(llm.web_research_links, game.name)
+            # Pass the deterministic BGG URL to prevent hallucination
+            bgg_future = executor.submit(llm.fetch_bgg_metadata, game.name, bgg_url)
+            youtube_future = executor.submit(llm.find_youtube_tutorial, game.name)
+
+            sources = sources_future.result()
+            bgg_data = bgg_future.result()
+            youtube_data = youtube_future.result()
+
+        logger.info("[RESEARCH] Parallel fetch complete:")
+        logger.info(f"[RESEARCH]   - Web sources found: {len(sources)}")
+        logger.info(f"[RESEARCH]   - BGG data: {bgg_data}")
+        logger.info(f"[RESEARCH]   - YouTube data: {youtube_data}")
+
+        # If YouTube search failed, try Google search fallback
+        if not youtube_data.get("video_url"):
+            logger.info("[RESEARCH] YouTube search failed, trying Google fallback...")
+            youtube_data = llm.google_search_youtube(game.name)
+            logger.info(f"[RESEARCH] Google YouTube result: {youtube_data}")
+
+        # Validate YouTube URL if we have one
+        if youtube_data.get("video_url"):
+            logger.info("[RESEARCH] Validating YouTube URL...")
+            is_valid = validate_youtube_url(youtube_data["video_url"])
+            if not is_valid:
+                logger.warning("[RESEARCH] YouTube URL is invalid/broken, removing it")
+                youtube_data = {
+                    "video_url": None,
+                    "video_title": None,
+                    "channel_name": None,
+                }
+
+        # 3) Always also consider deterministic seeds as a fallback
         seeds: List[Tuple[str, str]] = []
         wiki_slug = game.name.strip().replace(" ", "_")
         seeds.append(
@@ -312,9 +455,8 @@ class ResearchTool:
                 f"https://en.wikipedia.org/wiki/{urllib.parse.quote(wiki_slug)}",
             )
         )
-        bgg = bgg_canonical_url(game.name)
-        if bgg:
-            seeds.append((f"{game.name} (BoardGameGeek)", bgg))
+        if bgg_url:
+            seeds.append((f"{game.name} (BoardGameGeek)", bgg_url))
 
         for s in sources:
             seeds.append((s["title"], s["url"]))
@@ -384,14 +526,60 @@ class ResearchTool:
         except Exception as e:
             logger.error(f"Failed to generate description for game {game.id}: {e}")
 
+        # Save BGG and YouTube metadata
+        db.update_game_metadata(
+            game.id,
+            difficulty_score=bgg_data.get("difficulty_score"),
+            player_count=bgg_data.get("player_count"),
+            bgg_url=bgg_data.get("bgg_url"),
+            tutorial_video_url=youtube_data.get("video_url"),
+        )
+
         db.update_game_status(game.id, "ready")
         db.update_game_timestamps(game.id)
 
-        return (
+        # Build response message with metadata
+        response_parts = [
             f"I've created a knowledge base for <b>{game.name}</b> "
-            f"with {downloaded} saved files and {linked} links.\n\n"
-            f"Tap the button below to browse files, or ask me anything about {game.name}! 🦦"
+            f"with {downloaded} saved files and {linked} links."
+        ]
+
+        # Add game description if available
+        game_info = db.get_game_by_id(game.id)
+        if game_info and game_info.get("description"):
+            response_parts.append(f"\n\n<i>{game_info['description']}</i>")
+
+        # Add metadata if available
+        metadata_parts = []
+        if bgg_data.get("difficulty_score"):
+            difficulty = bgg_data["difficulty_score"]
+            metadata_parts.append(f"Difficulty: {difficulty}/5.0")
+        if bgg_data.get("player_count"):
+            metadata_parts.append(f"Players: {bgg_data['player_count']}")
+
+        if metadata_parts:
+            response_parts.append("\n" + " • ".join(metadata_parts))
+
+        # Add YouTube tutorial link if available
+        if youtube_data.get("video_url"):
+            video_title = youtube_data.get("video_title", "Tutorial Video")
+            channel = youtube_data.get("channel_name", "")
+            channel_text = f" by {channel}" if channel else ""
+            response_parts.append(
+                f'\n📺 <a href="{youtube_data["video_url"]}">{video_title}</a>{channel_text}'
+            )
+
+        # Add BGG link if available
+        if bgg_data.get("bgg_url"):
+            response_parts.append(
+                f'\n🎲 <a href="{bgg_data["bgg_url"]}">View on BoardGameGeek</a>'
+            )
+
+        response_parts.append(
+            f"\n\nTap the button below to browse files, or ask me anything about {game.name}! 🦦"
         )
+
+        return "".join(response_parts)
 
 
 class GamesListTool:
@@ -498,11 +686,13 @@ class QueryTool:
         game_data = db.get_game_by_name(game_name)
         context_text = ""
         citations = []
+        has_researched_game = False
 
         if game_data and game_data["status"] == "ready":
             # We have internal sources - search them
             game = Game(**game_data)
             context_text, citations = self._search_faiss(game.id, user_text, top_k=5)
+            has_researched_game = True
 
         # Use web search to supplement or provide answer
         # This gives us fresh, comprehensive answers even if we have limited internal data
@@ -533,6 +723,11 @@ class QueryTool:
             if not answer.strip().endswith("🦦"):
                 answer = answer.strip()
             answer = f'{answer}\n\n<b>Internal Sources:</b>\n{sources_html}\n\n<a href="{all_files_link}">📂 View all files for {game.name}</a>'
+        elif not has_researched_game:
+            # Add disclaimer if game hasn't been researched yet
+            if not answer.strip().endswith("🦦"):
+                answer = answer.strip()
+            answer = f'{answer}\n\n<i>Note: I haven\'t done thorough research on <b>{game_name}</b> yet. For more accurate and comprehensive results, you can say "otter research {game_name}".</i>'
 
         if not answer.strip().endswith("🦦"):
             answer = answer.strip() + " 🦦"
